@@ -108,6 +108,14 @@ type Store struct {
 	Path string `yaml:"path"`
 }
 
+type UIConfig struct {
+	Activity UIActivityConfig `yaml:"activity" json:"activity"`
+}
+
+type UIActivityConfig struct {
+	SessionID []string `yaml:"session_id" json:"session_id"`
+}
+
 type Config struct {
 	HealthCheckTimeout int                    `yaml:"healthCheckTimeout"`
 	LogRequests        bool                   `yaml:"logRequests"`
@@ -117,6 +125,7 @@ type Config struct {
 	MetricsMaxInMemory int                    `yaml:"metricsMaxInMemory"`
 	CaptureBuffer      int                    `yaml:"captureBuffer"`
 	Store              *Store                 `yaml:"store"`
+	UI                 UIConfig               `yaml:"ui"`
 	Performance        PerformanceConfig      `yaml:"performance"`
 	GlobalTTL          int                    `yaml:"globalTTL"`
 	Models             map[string]ModelConfig `yaml:"models"` /* key is model ID */
