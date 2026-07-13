@@ -25,7 +25,13 @@ ENV PATH="/usr/lib/ccache:${PATH}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake git python3 python3-pip libssl-dev \
     curl ca-certificates ccache make wget \
+    gcc-14 g++-14 \
+    libnccl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# audio.cpp requires gcc-14
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
 
 WORKDIR /build
 
@@ -43,23 +49,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates ccache make wget software-properties-common \
     libvulkan-dev glslang-tools spirv-tools vulkan-validationlayers glslc \
     spirv-headers \
+    gcc-14 g++-14 \
     && rm -rf /var/lib/apt/lists/*
+
+# audio.cpp requires gcc-14
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
 
 WORKDIR /build
 
 # ── Select builder base by BACKEND ────────────────────────────────────
 
 FROM builder-base-${BACKEND} AS builder-base
-
-# ── Build whisper.cpp (fastest build, run first) ──────────────────────
-
-FROM builder-base AS whisper-build
-ARG BACKEND=cuda
-ARG WHISPER_COMMIT_HASH=master
-COPY install-whisper.sh /build/
-RUN --mount=type=cache,id=ccache-${BACKEND},target=/ccache \
-    --mount=type=cache,id=whisper-${BACKEND},target=/src/whisper.cpp/build \
-    BACKEND=${BACKEND} bash /build/install-whisper.sh "${WHISPER_COMMIT_HASH}"
 
 # ── Build stable-diffusion.cpp ────────────────────────────────────────
 
@@ -70,6 +71,16 @@ COPY install-sd.sh /build/
 RUN --mount=type=cache,id=ccache-${BACKEND},target=/ccache \
     --mount=type=cache,id=sd-${BACKEND},target=/src/stable-diffusion.cpp/build \
     BACKEND=${BACKEND} bash /build/install-sd.sh "${SD_COMMIT_HASH}"
+
+# ── Build audio.cpp ────────────────────────────────────────────────────
+
+FROM builder-base AS audiocpp-build
+ARG BACKEND=cuda
+ARG AUDIOCPP_COMMIT_HASH=release-0.1
+COPY install-audiocpp.sh /build/
+RUN --mount=type=cache,id=ccache-${BACKEND},target=/ccache \
+    --mount=type=cache,id=audiocpp-${BACKEND},target=/src/audio.cpp/build \
+    BACKEND=${BACKEND} bash /build/install-audiocpp.sh "${AUDIOCPP_COMMIT_HASH}"
 
 # ── Build llama.cpp (slowest build, run last) ─────────────────────────
 
@@ -118,7 +129,7 @@ ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 ENV PATH="/usr/local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 python3 curl ca-certificates \
+    libgomp1 python3 curl ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA stub drivers for container compatibility
@@ -134,7 +145,7 @@ ENV PATH="/usr/local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 libvulkan1 mesa-vulkan-drivers \
-    python3 curl ca-certificates \
+    python3 curl ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Select runtime base by BACKEND ────────────────────────────────────
@@ -143,8 +154,8 @@ FROM runtime-${BACKEND} AS runtime
 
 ARG BACKEND=cuda
 ARG LLAMA_COMMIT_HASH=unknown
-ARG WHISPER_COMMIT_HASH=unknown
 ARG SD_COMMIT_HASH=unknown
+ARG AUDIOCPP_COMMIT_HASH=unknown
 ARG IK_LLAMA_COMMIT_HASH=unknown
 ARG RUN_UID=0
 
@@ -163,15 +174,14 @@ RUN if [ "$RUN_UID" != "0" ]; then \
 
 WORKDIR /app
 
-# Copy whisper.cpp binaries and libraries
-COPY --from=whisper-build /install/bin/whisper-server /usr/local/bin/
-COPY --from=whisper-build /install/bin/whisper-cli /usr/local/bin/
-COPY --from=whisper-build /install/lib/ /usr/local/lib/
-
 # Copy stable-diffusion.cpp binaries and libraries
 COPY --from=sd-build /install/bin/sd-server /usr/local/bin/
 COPY --from=sd-build /install/bin/sd-cli /usr/local/bin/
 COPY --from=sd-build /install/lib/ /usr/local/lib/
+
+# Copy audio.cpp binaries
+COPY --from=audiocpp-build /install/bin/audiocpp_server /usr/local/bin/
+COPY --from=audiocpp-build /install/bin/audiocpp_cli /usr/local/bin/
 
 # Copy llama.cpp binaries (statically linked)
 COPY --from=llama-build /install/bin/llama-server /usr/local/bin/
@@ -194,8 +204,8 @@ COPY config.example.yaml /etc/llama-swap/config/config.yaml
 
 # Version tracking
 RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
-    echo "whisper.cpp: ${WHISPER_COMMIT_HASH}" >> /versions.txt && \
     echo "stable-diffusion.cpp: ${SD_COMMIT_HASH}" >> /versions.txt && \
+    echo "audio.cpp: ${AUDIOCPP_COMMIT_HASH}" >> /versions.txt && \
     echo "ik_llama.cpp: ${IK_LLAMA_COMMIT_HASH}" >> /versions.txt && \
     echo "llama-swap: $(cat /tmp/llama-swap-version)" >> /versions.txt && \
     echo "backend: ${BACKEND}" >> /versions.txt && \

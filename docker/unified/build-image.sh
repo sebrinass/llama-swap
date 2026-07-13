@@ -8,8 +8,8 @@
 #   ./build-image.sh --cuda --no-cache                   # Build without cache
 #   LLAMA_REF=b1234 ./build-image.sh --vulkan            # Pin llama.cpp to a commit hash
 #   LLAMA_REF=v1.2.3 ./build-image.sh --cuda             # Pin llama.cpp to a tag
-#   WHISPER_REF=v1.0.0 ./build-image.sh --vulkan         # Pin whisper.cpp to a tag
 #   SD_REF=master ./build-image.sh --cuda                # Pin stable-diffusion.cpp to a branch
+#   AUDIOCPP_REF=release-0.1 ./build-image.sh --cuda     # Pin audio.cpp to a branch
 #   LS_VERSION=170 ./build-image.sh --cuda               # Override llama-swap version
 #   IK_LLAMA_REF=main ./build-image.sh --cuda            # Pin ik_llama.cpp to main branch (CUDA only)
 #
@@ -42,8 +42,8 @@ for arg in "$@"; do
             echo "Environment variables:"
             echo "  DOCKER_IMAGE_TAG     Set custom image tag (default: llama-swap:unified-cuda or llama-swap:unified-vulkan)"
             echo "  LLAMA_REF            Pin llama.cpp to a commit, tag, or branch"
-            echo "  WHISPER_REF          Pin whisper.cpp to a commit, tag, or branch"
             echo "  SD_REF               Pin stable-diffusion.cpp to a commit, tag, or branch"
+            echo "  AUDIOCPP_REF         Pin audio.cpp to a commit, tag, or branch"
             echo "  IK_LLAMA_REF         Pin ik_llama.cpp to a commit, tag, or branch (CUDA only)"
             echo "  LS_VERSION           Override llama-swap version (e.g., '170' or 'latest')"
             exit 0
@@ -62,8 +62,8 @@ DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-llama-swap:unified-${BACKEND}}"
 
 # Git repository URLs
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp.git"
-WHISPER_REPO="https://github.com/ggml-org/whisper.cpp.git"
 SD_REPO="https://github.com/leejet/stable-diffusion.cpp.git"
+AUDIOCPP_REPO="https://github.com/kigner/audio.cpp-webui.git"
 LLAMA_SWAP_REPO="https://github.com/mostlygeek/llama-swap.git"
 IK_LLAMA_REPO="https://github.com/ikawrakow/ik_llama.cpp.git"
 
@@ -129,19 +129,6 @@ else
     echo "llama.cpp: latest HEAD: ${LLAMA_HASH}"
 fi
 
-# Resolve whisper.cpp ref
-if [[ -n "${WHISPER_REF:-}" ]]; then
-    WHISPER_HASH=$(resolve_ref "${WHISPER_REPO}" "${WHISPER_REF}") || exit 1
-    echo "whisper.cpp: ${WHISPER_REF} -> ${WHISPER_HASH}"
-else
-    WHISPER_HASH=$(get_latest_hash "${WHISPER_REPO}")
-    if [[ -z "${WHISPER_HASH}" ]]; then
-        echo "ERROR: Could not determine latest commit for whisper.cpp" >&2
-        exit 1
-    fi
-    echo "whisper.cpp: latest HEAD: ${WHISPER_HASH}"
-fi
-
 # Resolve stable-diffusion.cpp ref
 if [[ -n "${SD_REF:-}" ]]; then
     SD_HASH=$(resolve_ref "${SD_REPO}" "${SD_REF}") || exit 1
@@ -153,6 +140,19 @@ else
         exit 1
     fi
     echo "stable-diffusion.cpp: latest HEAD: ${SD_HASH}"
+fi
+
+# Resolve audio.cpp ref
+if [[ -n "${AUDIOCPP_REF:-}" ]]; then
+    AUDIOCPP_HASH=$(resolve_ref "${AUDIOCPP_REPO}" "${AUDIOCPP_REF}") || exit 1
+    echo "audio.cpp: ${AUDIOCPP_REF} -> ${AUDIOCPP_HASH}"
+else
+    AUDIOCPP_HASH=$(get_latest_hash "${AUDIOCPP_REPO}")
+    if [[ -z "${AUDIOCPP_HASH}" ]]; then
+        echo "ERROR: Could not determine latest commit for audio.cpp" >&2
+        exit 1
+    fi
+    echo "audio.cpp: latest HEAD: ${AUDIOCPP_HASH}"
 fi
 
 # Resolve ik_llama.cpp ref (CUDA only)
@@ -197,8 +197,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_ARGS=(
     --build-arg "BACKEND=${BACKEND}"
     --build-arg "LLAMA_COMMIT_HASH=${LLAMA_HASH}"
-    --build-arg "WHISPER_COMMIT_HASH=${WHISPER_HASH}"
     --build-arg "SD_COMMIT_HASH=${SD_HASH}"
+    --build-arg "AUDIOCPP_COMMIT_HASH=${AUDIOCPP_HASH}"
     --build-arg "IK_LLAMA_COMMIT_HASH=${IK_LLAMA_HASH}"
     --build-arg "LS_VERSION=${LS_HASH}"
     -t "${DOCKER_IMAGE_TAG}"
@@ -209,7 +209,7 @@ if [[ "$NO_CACHE" == true ]]; then
     BUILD_ARGS+=(--no-cache)
     echo "Note: Building without cache"
 elif [[ "${GITHUB_ACTIONS:-}" == "true" && "${ACT:-}" != "true" ]]; then
-    CACHE_REF="ghcr.io/mostlygeek/llama-swap:unified-${BACKEND}-cache"
+    CACHE_REF="ghcr.io/${GITHUB_REPOSITORY:-sebrinass/llama-swap}:unified-${BACKEND}-cache"
     BUILD_ARGS+=(
         --cache-from "type=registry,ref=${CACHE_REF}"
         --cache-to "type=registry,ref=${CACHE_REF},mode=max"
@@ -225,7 +225,7 @@ echo "Verifying build artifacts..."
 echo "=========================================="
 echo ""
 
-EXPECTED_BINARIES=(llama-server llama-cli whisper-server whisper-cli sd-server sd-cli llama-swap)
+EXPECTED_BINARIES=(llama-server llama-cli sd-server sd-cli audiocpp_server audiocpp_cli llama-swap)
 if [[ "$BACKEND" == "cuda" ]]; then
     EXPECTED_BINARIES+=(ik-llama-server)
 fi
@@ -248,7 +248,7 @@ if [[ ${#MISSING_BINARIES[@]} -gt 0 ]]; then
     exit 1
 fi
 
-VERIFIED_LIST="llama-server, llama-cli, whisper-server, whisper-cli, sd-server, sd-cli, llama-swap"
+VERIFIED_LIST="llama-server, llama-cli, sd-server, sd-cli, audiocpp_server, audiocpp_cli, llama-swap"
 if [[ "$BACKEND" == "cuda" ]]; then
     VERIFIED_LIST="${VERIFIED_LIST}, ik-llama-server"
 fi
@@ -284,8 +284,8 @@ echo "  ${ROOTLESS_TAG}"
 echo ""
 echo "Built with:"
 echo "  llama.cpp:            ${LLAMA_HASH}"
-echo "  whisper.cpp:          ${WHISPER_HASH}"
 echo "  stable-diffusion.cpp: ${SD_HASH}"
+echo "  audio.cpp:            ${AUDIOCPP_HASH}"
 if [[ "$BACKEND" == "cuda" ]]; then
     echo "  ik_llama.cpp:         ${IK_LLAMA_HASH}"
 fi
