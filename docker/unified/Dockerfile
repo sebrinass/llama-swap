@@ -26,7 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake git python3 python3-pip libssl-dev \
     curl ca-certificates ccache make wget \
     gcc-14 g++-14 \
-    libnccl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # audio.cpp requires gcc-14
