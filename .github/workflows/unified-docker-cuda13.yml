@@ -88,7 +88,7 @@ jobs:
           docker/unified/build-image.sh --cuda
 
       - name: Push to GitHub Container Registry
-        if: ${{ !env.ACT && (github.event_name == 'schedule' || inputs.push_to_ghcr == true) }}
+        if: ${{ !env.ACT && (github.event_name == 'schedule' || github.event_name == 'push' || inputs.push_to_ghcr == true) }}
         run: |
           BASE_TAG="ghcr.io/${{ github.repository }}:unified-cuda13"
           DATE_TAG=$(date -u +%Y-%m-%d)
