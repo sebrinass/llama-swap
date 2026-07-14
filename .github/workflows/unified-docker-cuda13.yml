@@ -1,6 +1,11 @@
 name: Build Unified Docker Image (CUDA 13.3)
 
 on:
+  push:
+    paths:
+      - "docker/unified/Dockerfile.cuda13"
+      - ".github/workflows/unified-docker-cuda13.yml"
+
   schedule:
     - cron: "0 6 * * *"
 
