@@ -59,6 +59,7 @@ if [[ -z "$BACKEND" ]]; then
 fi
 
 DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-llama-swap:unified-${BACKEND}}"
+CACHE_TAG="${CACHE_TAG:-unified-${BACKEND}-cache}"
 
 # Git repository URLs
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp.git"
@@ -193,6 +194,7 @@ echo "=========================================="
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOCKERFILE="${DOCKERFILE:-${SCRIPT_DIR}/Dockerfile}"
 
 BUILD_ARGS=(
     --build-arg "BACKEND=${BACKEND}"
@@ -202,14 +204,14 @@ BUILD_ARGS=(
     --build-arg "IK_LLAMA_COMMIT_HASH=${IK_LLAMA_HASH}"
     --build-arg "LS_VERSION=${LS_HASH}"
     -t "${DOCKER_IMAGE_TAG}"
-    -f "${SCRIPT_DIR}/Dockerfile"
+    -f "${DOCKERFILE}"
 )
 
 if [[ "$NO_CACHE" == true ]]; then
     BUILD_ARGS+=(--no-cache)
     echo "Note: Building without cache"
 elif [[ "${GITHUB_ACTIONS:-}" == "true" && "${ACT:-}" != "true" ]]; then
-    CACHE_REF="ghcr.io/${GITHUB_REPOSITORY:-sebrinass/llama-swap}:unified-${BACKEND}-cache"
+    CACHE_REF="ghcr.io/${GITHUB_REPOSITORY:-sebrinass/llama-swap}:${CACHE_TAG}"
     BUILD_ARGS+=(
         --cache-from "type=registry,ref=${CACHE_REF}"
         --cache-to "type=registry,ref=${CACHE_REF},mode=max"

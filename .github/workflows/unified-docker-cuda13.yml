@@ -1,0 +1,98 @@
+name: Build Unified Docker Image (CUDA 13.3)
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+
+  workflow_dispatch:
+    inputs:
+      llama_cpp_ref:
+        description: "llama.cpp commit hash, tag, or branch"
+        required: false
+        default: "master"
+      sd_ref:
+        description: "stable-diffusion.cpp commit hash, tag, or branch"
+        required: false
+        default: "master"
+      audiocpp_ref:
+        description: "audio.cpp commit hash, tag, or branch"
+        required: false
+        default: "release-0.1"
+      ik_llama_ref:
+        description: "ik_llama.cpp commit hash, tag, or branch (CUDA only)"
+        required: false
+        default: "main"
+      llama_swap_version:
+        description: "llama-swap version (e.g. v198, latest, main)"
+        required: false
+        default: "main"
+      push_to_ghcr:
+        description: "Push images to ghcr.io"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+
+      - name: Free up disk space
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af
+          echo "After cleanup:"
+          df -h
+
+      - name: Set up Docker Buildx
+        if: ${{ !env.ACT }}
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd #v4.0.0
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ !env.ACT }}
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 #v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build unified Docker image (CUDA 13.3)
+        env:
+          LLAMA_REF: ${{ inputs.llama_cpp_ref || 'master' }}
+          SD_REF: ${{ inputs.sd_ref || 'master' }}
+          AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'release-0.1' }}
+          IK_LLAMA_REF: ${{ inputs.ik_llama_ref || 'main' }}
+          LS_VERSION: ${{ inputs.llama_swap_version || 'main' }}
+          DOCKER_IMAGE_TAG: ghcr.io/${{ github.repository }}:unified-cuda13
+          DOCKERFILE: docker/unified/Dockerfile.cuda13
+          CACHE_TAG: unified-cuda13-cache
+          BUILDX_BUILDER: ${{ env.ACT == 'true' && 'llama-swap-builder' || '' }}
+        run: |
+          chmod +x docker/unified/build-image.sh
+          docker/unified/build-image.sh --cuda
+
+      - name: Push to GitHub Container Registry
+        if: ${{ !env.ACT && (github.event_name == 'schedule' || inputs.push_to_ghcr == true) }}
+        run: |
+          BASE_TAG="ghcr.io/${{ github.repository }}:unified-cuda13"
+          DATE_TAG=$(date -u +%Y-%m-%d)
+
+          docker push "${BASE_TAG}"
+          docker tag "${BASE_TAG}" "${BASE_TAG}-${DATE_TAG}"
+          docker push "${BASE_TAG}-${DATE_TAG}"
+
+          ROOTLESS_TAG="${BASE_TAG}-rootless"
+          docker push "${ROOTLESS_TAG}"
+          docker tag "${ROOTLESS_TAG}" "${ROOTLESS_TAG}-${DATE_TAG}"
+          docker push "${ROOTLESS_TAG}-${DATE_TAG}"
