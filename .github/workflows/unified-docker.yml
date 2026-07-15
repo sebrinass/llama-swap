@@ -1,8 +1,8 @@
 name: Build Unified Docker Image
 
 on:
-  schedule:
-    - cron: "37 5 * * *"
+  # schedule:  # disabled - 暂停每日自动构建，等调试好后再开启
+  #   - cron: "37 5 * * *"
 
   workflow_dispatch:
     inputs:
