@@ -1,4 +1,5 @@
 # Unified multi-stage Dockerfile for AI inference tools
+# Components: llama.cpp, ik_llama.cpp, stable-diffusion.cpp, audio.cpp
 # Supports CUDA and Vulkan backends via BACKEND build arg
 #
 # Usage:
