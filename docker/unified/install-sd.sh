@@ -27,6 +27,7 @@ CMAKE_FLAGS=(
     -DCMAKE_C_COMPILER_LAUNCHER=ccache
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     -DSD_BUILD_EXAMPLES=ON
+    -DGGML_LTO=ON
 )
 
 if [ "$BACKEND" = "cuda" ]; then

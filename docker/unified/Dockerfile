@@ -13,9 +13,9 @@ ARG BACKEND=cuda
 
 # ── Builder bases ──────────────────────────────────────────────────────
 
-FROM nvidia/cuda:12.9.1-devel-ubuntu24.04 AS builder-base-cuda
+FROM nvidia/cuda:13.3.0-devel-ubuntu24.04 AS builder-base-cuda
 
-ARG CMAKE_CUDA_ARCHITECTURES="60;61;75;86;89"
+ARG CMAKE_CUDA_ARCHITECTURES="86"
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}
 ENV CCACHE_DIR=/ccache
@@ -121,7 +121,7 @@ RUN bash /build/install-llama-swap.sh "${LS_VERSION}"
 
 # ── Runtime bases ─────────────────────────────────────────────────────
 
-FROM nvidia/cuda:12.9.1-runtime-ubuntu24.04 AS runtime-cuda
+FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS runtime-cuda
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
@@ -208,6 +208,7 @@ RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     echo "ik_llama.cpp: ${IK_LLAMA_COMMIT_HASH}" >> /versions.txt && \
     echo "llama-swap: $(cat /tmp/llama-swap-version)" >> /versions.txt && \
     echo "backend: ${BACKEND}" >> /versions.txt && \
+    echo "cuda_version: 13.3.0" >> /versions.txt && \
     echo "build_timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /versions.txt
 
 RUN mkdir -p /models && chown ${RUN_UID}:${RUN_UID} /models

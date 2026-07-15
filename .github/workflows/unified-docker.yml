@@ -1,6 +1,11 @@
 name: Build Unified Docker Image
 
 on:
+  push:
+    paths:
+      - "docker/unified/**"
+      - ".github/workflows/unified-docker.yml"
+
   # schedule:  # disabled - 暂停每日自动构建，等调试好后再开启
   #   - cron: "37 5 * * *"
 
