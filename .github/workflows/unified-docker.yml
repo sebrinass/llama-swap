@@ -55,7 +55,7 @@ jobs:
       - id: set-matrix
         run: |
           backends=()
-          if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ inputs.build_cuda }}" == "true" ]]; then
+          if [[ "${{ github.event_name }}" == "push" ]] || [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ inputs.build_cuda }}" == "true" ]]; then
             backends+=("cuda")
           fi
           matrix=$(printf '%s\n' "${backends[@]}" | jq -R . | jq -sc .)
