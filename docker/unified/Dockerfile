@@ -137,6 +137,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder-base-cuda /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so
 COPY --from=builder-base-cuda /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
 
+# NCCL library (built against libnccl-dev in builder, need it at runtime)
+COPY --from=builder-base-cuda /usr/lib/x86_64-linux-gnu/libnccl.so.2 /usr/lib/x86_64-linux-gnu/libnccl.so.2
+
 # ──
 
 FROM ubuntu:24.04 AS runtime-vulkan
