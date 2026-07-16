@@ -1,5 +1,5 @@
 # Unified multi-stage Dockerfile for AI inference tools
-# Components: llama.cpp, ik_llama.cpp, stable-diffusion.cpp, audio.cpp
+# Components: llama.cpp, stable-diffusion.cpp, audio.cpp
 # Supports CUDA and Vulkan backends via BACKEND build arg
 #
 # Usage:
@@ -93,27 +93,6 @@ RUN --mount=type=cache,id=ccache-${BACKEND},target=/ccache \
     --mount=type=cache,id=llama-${BACKEND},target=/src/llama.cpp/build \
     BACKEND=${BACKEND} bash /build/install-llama.sh "${LLAMA_COMMIT_HASH}"
 
-# ── Build ik_llama.cpp (CUDA only) ────────────────────────────────────
-#
-# Two named stages allow ARG BACKEND to select at build time:
-#   - ik-llama-cuda  : real build (from builder-base-cuda)
-#   - ik-llama-vulkan: no-op (empty /install/bin, skips CUDA pull entirely)
-# BuildKit only evaluates the selected branch, so vulkan builds never
-# pull nvidia/cuda:*-devel or compile ik_llama.cpp.
-
-FROM builder-base-vulkan AS ik-llama-vulkan
-RUN mkdir -p /install/bin
-
-FROM builder-base-cuda AS ik-llama-cuda
-ARG IK_LLAMA_COMMIT_HASH=main
-COPY install-ik-llama.sh /build/
-RUN --mount=type=cache,id=ccache-cuda,target=/ccache \
-    --mount=type=cache,id=ik-llama-cuda,target=/src/ik_llama.cpp/build \
-    bash /build/install-ik-llama.sh "${IK_LLAMA_COMMIT_HASH}"
-
-ARG BACKEND=cuda
-FROM ik-llama-${BACKEND} AS ik-llama-build
-
 # ── Download llama-swap release binary ────────────────────────────────
 
 FROM builder-base AS llama-swap-download
@@ -160,7 +139,6 @@ ARG BACKEND=cuda
 ARG LLAMA_COMMIT_HASH=unknown
 ARG SD_COMMIT_HASH=unknown
 ARG AUDIOCPP_COMMIT_HASH=unknown
-ARG IK_LLAMA_COMMIT_HASH=unknown
 ARG RUN_UID=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -192,9 +170,6 @@ COPY --from=llama-build /install/bin/llama-server /usr/local/bin/
 COPY --from=llama-build /install/bin/llama-cli /usr/local/bin/
 COPY --from=llama-build /install/bin/llama-tts /usr/local/bin/
 
-# Copy ik-llama-server (CUDA only; empty copy for vulkan)
-COPY --from=ik-llama-build /install/bin/ /usr/local/bin/
-
 # Install uv
 RUN pip install uv --break-system-packages
 
@@ -210,7 +185,6 @@ COPY config.example.yaml /etc/llama-swap/config/config.yaml
 RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     echo "stable-diffusion.cpp: ${SD_COMMIT_HASH}" >> /versions.txt && \
     echo "audio.cpp: ${AUDIOCPP_COMMIT_HASH}" >> /versions.txt && \
-    echo "ik_llama.cpp: ${IK_LLAMA_COMMIT_HASH}" >> /versions.txt && \
     echo "llama-swap: $(cat /tmp/llama-swap-version)" >> /versions.txt && \
     echo "backend: ${BACKEND}" >> /versions.txt && \
     echo "cuda_version: 13.3.0" >> /versions.txt && \
