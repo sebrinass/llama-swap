@@ -206,6 +206,9 @@ echo "=========================================="
 echo ""
 
 EXPECTED_BINARIES=(llama-server llama-cli sd-server sd-cli audiocpp_server audiocpp_cli llama-swap)
+if [[ "$BACKEND" == "cuda" ]]; then
+    EXPECTED_BINARIES+=(vllm)
+fi
 
 MISSING_BINARIES=()
 for binary in "${EXPECTED_BINARIES[@]}"; do
@@ -226,6 +229,9 @@ if [[ ${#MISSING_BINARIES[@]} -gt 0 ]]; then
 fi
 
 VERIFIED_LIST="llama-server, llama-cli, sd-server, sd-cli, audiocpp_server, audiocpp_cli, llama-swap"
+if [[ "$BACKEND" == "cuda" ]]; then
+    VERIFIED_LIST="${VERIFIED_LIST}, vllm"
+fi
 echo "All expected binaries verified: ${VERIFIED_LIST}"
 
 echo ""
@@ -241,7 +247,7 @@ USER root
 RUN groupadd --system --gid 10001 llama-swap && \\
     useradd --system --uid 10001 --gid 10001 \\
       --home /app --shell /sbin/nologin llama-swap && \\
-    chown -R 10001:10001 /etc/llama-swap /models
+    chown -R 10001:10001 /etc/llama-swap /models /opt/vllm-venv
 USER 10001
 EOF
 

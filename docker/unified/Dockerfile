@@ -1,6 +1,7 @@
 # Unified multi-stage Dockerfile for AI inference tools
-# Components: llama.cpp, stable-diffusion.cpp, audio.cpp
+# Components: llama.cpp, stable-diffusion.cpp, audio.cpp, vLLM + vLLM-Omni
 # Supports CUDA and Vulkan backends via BACKEND build arg
+# vLLM + vLLM-Omni are CUDA-only (not available in Vulkan builds)
 #
 # Usage:
 #   docker buildx build --build-arg BACKEND=cuda -t llama-swap:unified-cuda .
@@ -100,6 +101,42 @@ ARG LS_VERSION=latest
 COPY install-llama-swap.sh /build/
 RUN bash /build/install-llama-swap.sh "${LS_VERSION}"
 
+# ── Install vLLM + vLLM-Omni (CUDA only) ──────────────────────────────
+#
+# Uses prebuilt wheels via uv — no source compilation needed.
+# vLLM's kernels are precompiled; sm_86 (Ampere) is covered by default wheels.
+# Two named stages allow ARG BACKEND to select at build time:
+#   - vllm-cuda  : real install (from nvidia/cuda:13.3.0-runtime)
+#   - vllm-vulkan: no-op (empty venv, skips vLLM entirely)
+
+FROM ubuntu:24.04 AS vllm-vulkan
+RUN mkdir -p /opt/vllm-venv/bin
+
+FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS vllm-cuda
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-venv python3-pip curl ca-certificates \
+    espeak-ng ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --break-system-packages uv
+
+RUN uv venv /opt/vllm-venv --python 3.12 --seed
+ENV PATH="/opt/vllm-venv/bin:${PATH}"
+ENV CUDA_HOME="/usr/local/cuda"
+ENV VLLM_USE_V1=1
+
+# Install vLLM (auto-detects CUDA 13.x from CUDA_HOME)
+RUN uv pip install vllm --torch-backend=auto
+
+# Install vLLM-Omni (multimodal extension: Qwen3-Omni, Qwen2.5-Omni, etc.)
+RUN uv pip install vllm-omni
+
+ARG BACKEND=cuda
+FROM vllm-${BACKEND} AS vllm-build
+
 # ── Runtime bases ─────────────────────────────────────────────────────
 
 FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS runtime-cuda
@@ -143,6 +180,7 @@ ARG RUN_UID=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-numpy python3-sentencepiece python3-pip \
+    espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user when RUN_UID != 0
@@ -177,6 +215,12 @@ RUN pip install uv --break-system-packages
 COPY --from=llama-swap-download /install/bin/llama-swap /usr/local/bin/
 COPY --from=llama-swap-download /install/llama-swap-version /tmp/
 
+# Copy vLLM + vLLM-Omni venv (CUDA only; empty for Vulkan)
+COPY --from=vllm-build /opt/vllm-venv /opt/vllm-venv
+ENV PATH="/opt/vllm-venv/bin:${PATH}"
+ENV VLLM_USE_V1=1
+ENV CUDA_HOME="/usr/local/cuda"
+
 RUN ldconfig
 
 COPY config.example.yaml /etc/llama-swap/config/config.yaml
@@ -188,9 +232,17 @@ RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     echo "llama-swap: $(cat /tmp/llama-swap-version)" >> /versions.txt && \
     echo "backend: ${BACKEND}" >> /versions.txt && \
     echo "cuda_version: 13.3.0" >> /versions.txt && \
+    if [ -f /opt/vllm-venv/bin/vllm ]; then \
+      echo "vllm: $(/opt/vllm-venv/bin/python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
+      echo "vllm-omni: $(/opt/vllm-venv/bin/python -c 'import vllm_omni; print(vllm_omni.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt; \
+    else \
+      echo "vllm: skipped (vulkan build)" >> /versions.txt && \
+      echo "vllm-omni: skipped (vulkan build)" >> /versions.txt; \
+    fi && \
     echo "build_timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /versions.txt
 
-RUN mkdir -p /models && chown ${RUN_UID}:${RUN_UID} /models
+RUN mkdir -p /models && chown ${RUN_UID}:${RUN_UID} /models && \
+    chmod -R a+rX /opt/vllm-venv
 WORKDIR /models
 USER ${RUN_UID}
 ENTRYPOINT ["llama-swap"]
