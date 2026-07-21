@@ -128,8 +128,14 @@ ENV PATH="/opt/vllm-venv/bin:${PATH}"
 ENV CUDA_HOME="/usr/local/cuda"
 ENV VLLM_USE_V1=1
 
-# Install vLLM (auto-detects CUDA 13.x from CUDA_HOME)
-RUN uv pip install vllm --torch-backend=auto
+# Install vLLM with PyTorch cu128 backend.
+# vLLM's prebuilt wheels are compiled against CUDA 12.8, and PyTorch's cu128
+# wheel bundles its own CUDA 12.8 runtime libs (site-packages/nvidia/*), so
+# vLLM runs independently of the container's CUDA 13.3 system runtime.
+# --torch-backend=auto must NOT be used here: uv reads CUDA_HOME (13.3) and,
+# finding no cu133 PyTorch wheel, falls back to the CPU-only torch build,
+# which ships without libtorch_cuda.so and breaks `import vllm`.
+RUN uv pip install vllm --torch-backend=cu128
 
 # Install vLLM-Omni (multimodal extension: Qwen3-Omni, Qwen2.5-Omni, etc.)
 RUN uv pip install vllm-omni
