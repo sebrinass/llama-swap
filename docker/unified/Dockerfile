@@ -116,8 +116,11 @@ FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS vllm-cuda
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# gcc + python3.12-dev are required for Triton JIT kernel compilation at
+# runtime (e.g. cuda_utils.cu needs Python.h; triton needs a C compiler).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 python3.12-venv python3-pip curl ca-certificates \
+    python3.12 python3.12-venv python3.12-dev python3-pip \
+    gcc curl ca-certificates \
     espeak-ng ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -126,7 +129,6 @@ RUN pip install --break-system-packages uv
 RUN uv venv /opt/vllm-venv --python 3.12 --seed
 ENV PATH="/opt/vllm-venv/bin:${PATH}"
 ENV CUDA_HOME="/usr/local/cuda"
-ENV VLLM_USE_V1=1
 
 # Install vLLM with PyTorch cu128 backend.
 # vLLM's prebuilt wheels are compiled against CUDA 12.8, and PyTorch's cu128
@@ -152,7 +154,7 @@ ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 ENV PATH="/usr/local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 python3 curl ca-certificates ffmpeg \
+    libgomp1 python3 python3.12-dev gcc curl ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA stub drivers for container compatibility
@@ -224,7 +226,6 @@ COPY --from=llama-swap-download /install/llama-swap-version /tmp/
 # Copy vLLM + vLLM-Omni venv (CUDA only; empty for Vulkan)
 COPY --from=vllm-build /opt/vllm-venv /opt/vllm-venv
 ENV PATH="/opt/vllm-venv/bin:${PATH}"
-ENV VLLM_USE_V1=1
 ENV CUDA_HOME="/usr/local/cuda"
 
 RUN ldconfig
