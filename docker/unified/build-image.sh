@@ -166,6 +166,30 @@ else
     echo "llama-swap: latest HEAD: ${LS_HASH}"
 fi
 
+# Resolve latest vLLM + vLLM-Omni versions from PyPI (CUDA only).
+# Injecting the version string as a build-arg forces BuildKit to re-run the
+# `uv pip install` layer whenever the version changes, avoiding stale cache
+# hits (same pattern used for LLAMA_COMMIT_HASH / SD_COMMIT_HASH above).
+VLLM_VERSION=""
+VLLM_OMNI_VERSION=""
+if [[ "$BACKEND" == "cuda" ]]; then
+    VLLM_VERSION=$(curl -s https://pypi.org/pypi/vllm/json \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])")
+    if [[ -z "${VLLM_VERSION}" ]]; then
+        echo "ERROR: Could not determine latest vLLM version from PyPI" >&2
+        exit 1
+    fi
+    echo "vllm: latest PyPI version: ${VLLM_VERSION}"
+
+    VLLM_OMNI_VERSION=$(curl -s https://pypi.org/pypi/vllm-omni/json \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])")
+    if [[ -z "${VLLM_OMNI_VERSION}" ]]; then
+        echo "ERROR: Could not determine latest vLLM-Omni version from PyPI" >&2
+        exit 1
+    fi
+    echo "vllm-omni: latest PyPI version: ${VLLM_OMNI_VERSION}"
+fi
+
 echo ""
 echo "=========================================="
 echo "Starting Docker build..."
@@ -184,6 +208,14 @@ BUILD_ARGS=(
     -t "${DOCKER_IMAGE_TAG}"
     -f "${DOCKERFILE}"
 )
+
+# vLLM build-args (CUDA only; empty for Vulkan, Dockerfile ARG defaults apply)
+if [[ "$BACKEND" == "cuda" ]]; then
+    BUILD_ARGS+=(
+        --build-arg "VLLM_VERSION=${VLLM_VERSION}"
+        --build-arg "VLLM_OMNI_VERSION=${VLLM_OMNI_VERSION}"
+    )
+fi
 
 if [[ "$NO_CACHE" == true ]]; then
     BUILD_ARGS+=(--no-cache)

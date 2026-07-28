@@ -130,6 +130,13 @@ RUN uv venv /opt/vllm-venv --python 3.12 --seed
 ENV PATH="/opt/vllm-venv/bin:${PATH}"
 ENV CUDA_HOME="/usr/local/cuda"
 
+# vLLM / vLLM-Omni versions are injected as build-args by build-image.sh,
+# which resolves the latest version from PyPI at build time. Pinning the
+# version string (instead of a bare `vllm`) forces BuildKit to re-run this
+# layer whenever the version changes, avoiding stale registry-cache hits.
+ARG VLLM_VERSION=latest
+ARG VLLM_OMNI_VERSION=latest
+
 # Install vLLM with PyTorch cu128 backend.
 # vLLM's prebuilt wheels are compiled against CUDA 12.8, and PyTorch's cu128
 # wheel bundles its own CUDA 12.8 runtime libs (site-packages/nvidia/*), so
@@ -137,10 +144,10 @@ ENV CUDA_HOME="/usr/local/cuda"
 # --torch-backend=auto must NOT be used here: uv reads CUDA_HOME (13.3) and,
 # finding no cu133 PyTorch wheel, falls back to the CPU-only torch build,
 # which ships without libtorch_cuda.so and breaks `import vllm`.
-RUN uv pip install vllm --torch-backend=cu128
+RUN uv pip install "vllm==${VLLM_VERSION}" --torch-backend=cu128
 
 # Install vLLM-Omni (multimodal extension: Qwen3-Omni, Qwen2.5-Omni, etc.)
-RUN uv pip install vllm-omni
+RUN uv pip install "vllm-omni==${VLLM_OMNI_VERSION}"
 
 ARG BACKEND=cuda
 FROM vllm-${BACKEND} AS vllm-build
