@@ -173,18 +173,18 @@ fi
 VLLM_VERSION=""
 VLLM_OMNI_VERSION=""
 if [[ "$BACKEND" == "cuda" ]]; then
-    VLLM_VERSION=$(curl -s https://pypi.org/pypi/vllm/json \
-        | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])")
-    if [[ -z "${VLLM_VERSION}" ]]; then
-        echo "ERROR: Could not determine latest vLLM version from PyPI" >&2
+    echo "Resolving vLLM version from PyPI..."
+    if ! VLLM_VERSION=$(curl -fsSL https://pypi.org/pypi/vllm/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
+        echo "ERROR: Failed to resolve vLLM version from PyPI" >&2
+        echo "  curl/python output: ${VLLM_VERSION}" >&2
         exit 1
     fi
     echo "vllm: latest PyPI version: ${VLLM_VERSION}"
 
-    VLLM_OMNI_VERSION=$(curl -s https://pypi.org/pypi/vllm-omni/json \
-        | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])")
-    if [[ -z "${VLLM_OMNI_VERSION}" ]]; then
-        echo "ERROR: Could not determine latest vLLM-Omni version from PyPI" >&2
+    echo "Resolving vLLM-Omni version from PyPI..."
+    if ! VLLM_OMNI_VERSION=$(curl -fsSL https://pypi.org/pypi/vllm-omni/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
+        echo "ERROR: Failed to resolve vLLM-Omni version from PyPI" >&2
+        echo "  curl/python output: ${VLLM_OMNI_VERSION}" >&2
         exit 1
     fi
     echo "vllm-omni: latest PyPI version: ${VLLM_OMNI_VERSION}"
