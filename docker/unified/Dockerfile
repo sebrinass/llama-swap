@@ -138,13 +138,20 @@ ARG VLLM_VERSION=latest
 ARG VLLM_OMNI_VERSION=latest
 
 # Install vLLM with PyTorch cu128 backend.
-# vLLM's prebuilt wheels are compiled against CUDA 12.8, and PyTorch's cu128
-# wheel bundles its own CUDA 12.8 runtime libs (site-packages/nvidia/*), so
-# vLLM runs independently of the container's CUDA 13.3 system runtime.
-# --torch-backend=auto must NOT be used here: uv reads CUDA_HOME (13.3) and,
+#
+# We use --extra-index-url + --index-strategy=unsafe-best-match instead of
+# --torch-backend=cu128 because vLLM 0.26+ depends on torchcodec>=0.14, but
+# the cu128 index only has torchcodec<=0.11.1.  With --torch-backend=cu128,
+# uv restricts torchcodec to the cu128 index and fails.  With
+# --extra-index-url + unsafe-best-match, uv picks torch from the cu128 index
+# (torch==2.11.0+cu128) and torchcodec from PyPI (0.15.0), satisfying both.
+#
+# --torch-backend=auto must NOT be used: uv reads CUDA_HOME (13.3) and,
 # finding no cu133 PyTorch wheel, falls back to the CPU-only torch build,
 # which ships without libtorch_cuda.so and breaks `import vllm`.
-RUN uv pip install "vllm==${VLLM_VERSION}" --torch-backend=cu128
+RUN uv pip install "vllm==${VLLM_VERSION}" \
+    --extra-index-url https://download.pytorch.org/whl/cu128 \
+    --index-strategy unsafe-best-match
 
 # Install vLLM-Omni (multimodal extension: Qwen3-Omni, Qwen2.5-Omni, etc.)
 RUN uv pip install "vllm-omni==${VLLM_OMNI_VERSION}"
