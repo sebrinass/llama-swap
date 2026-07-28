@@ -137,7 +137,11 @@ ENV CUDA_HOME="/usr/local/cuda"
 ARG VLLM_VERSION=latest
 ARG VLLM_OMNI_VERSION=latest
 
-# Install vLLM with PyTorch cu128 backend.
+# Install vLLM + vLLM-Omni with PyTorch cu128 backend.
+#
+# Both packages are installed in a single uv pip install so uv resolves all
+# constraints together, avoiding conflicts that arise when installing them
+# separately (the second install can upgrade/downgrade shared deps).
 #
 # We use --extra-index-url + --index-strategy=unsafe-best-match instead of
 # --torch-backend=cu128 because vLLM 0.26+ depends on torchcodec>=0.14, but
@@ -149,12 +153,9 @@ ARG VLLM_OMNI_VERSION=latest
 # --torch-backend=auto must NOT be used: uv reads CUDA_HOME (13.3) and,
 # finding no cu133 PyTorch wheel, falls back to the CPU-only torch build,
 # which ships without libtorch_cuda.so and breaks `import vllm`.
-RUN uv pip install "vllm==${VLLM_VERSION}" \
+RUN uv pip install "vllm==${VLLM_VERSION}" "vllm-omni==${VLLM_OMNI_VERSION}" \
     --extra-index-url https://download.pytorch.org/whl/cu128 \
     --index-strategy unsafe-best-match
-
-# Install vLLM-Omni (multimodal extension: Qwen3-Omni, Qwen2.5-Omni, etc.)
-RUN uv pip install "vllm-omni==${VLLM_OMNI_VERSION}"
 
 ARG BACKEND=cuda
 FROM vllm-${BACKEND} AS vllm-build
