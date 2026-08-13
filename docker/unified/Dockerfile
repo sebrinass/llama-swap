@@ -156,12 +156,14 @@ ARG VLLM_OMNI_VERSION=latest
 # local .gguf + tokenizer).  Note: GGUF models do NOT support fp8 KV cache,
 # so --kv-cache-dtype fp8 must not be used with GGUF models.
 #
-# We require torchaudio >= 2.13.0 to avoid the conflict where vllm-omni would
-# pull torchaudio==2.11.0+cu128 from cu128, which doesn't work with the
-# torch==2.13.0 (cu13) wheel from PyPI.
+# torchaudio is deliberately NOT pinned: vLLM 0.27.1 pins torchaudio==2.11.0
+# exactly (torch==2.13.0).  Pinning torchaudio>=2.13.0 here made the dependency
+# graph unsatisfiable (vllm==0.27.1 requires torchaudio==2.11.0).  Because vLLM
+# requires torchaudio==2.11.0 with no +cu128 local version, uv resolves the
+# plain PyPI build (PEP 440: 2.11.0+cu128 != 2.11.0), which pairs with the
+# torch==2.13.0 (cu13) wheel.
 RUN uv pip install "vllm==${VLLM_VERSION}" "vllm-omni==${VLLM_OMNI_VERSION}" \
     vllm-gguf-plugin \
-    "torchaudio>=2.13.0" \
     --extra-index-url https://download.pytorch.org/whl/cu128 \
     --index-strategy unsafe-best-match
 
