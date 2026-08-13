@@ -272,14 +272,17 @@ echo "All expected binaries verified: ${VERIFIED_LIST}"
 if [[ "$BACKEND" == "cuda" ]]; then
     echo ""
     echo "Running static verification (no GPU required)..."
+    # NOTE: avoid the `vllm` CLI here.  vLLM 0.27 runs device-type inference
+    # while building the CLI arg parser, which fails without a GPU ("Failed to
+    # infer device type").  Use direct Python imports / source greps instead.
     if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
         set -e
         echo "--- nvcc ---"
         nvcc --version | tail -1
         echo "--- vllm version ---"
-        /opt/vllm-venv/bin/vllm --version
+        /opt/vllm-venv/bin/python -c "import vllm; print(vllm.__version__)"
         echo "--- kv-cache-dtype flag ---"
-        /opt/vllm-venv/bin/vllm serve --help | grep -A3 kv-cache-dtype | head -5
+        grep -rhoE -- "--kv-cache-dtype|kv_cache_dtype" /opt/vllm-venv/lib/python3.12/site-packages/vllm/ | sort -u
         echo "--- pip list (vllm/flashinfer/gguf) ---"
         /opt/vllm-venv/bin/pip list 2>/dev/null | grep -i -E "vllm|flashinfer|gguf"
         echo "--- flashinfer import ---"
