@@ -175,7 +175,7 @@ FROM vllm-${BACKEND} AS vllm-build
 FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS runtime-cuda
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:/usr/local/cuda-12.8/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}"
 ENV PATH="/usr/local/cuda/bin:/usr/local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -190,12 +190,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   cuda-nvcc-13-3 pulls in cuda-cudart-dev-13-3, libnvvm-13-3,
 #   cuda-crt-13-3 and libnvptxcompiler-13-3 automatically; cuda-driver-dev
 #   provides cuda.h for FlashInfer JIT compilation.
+#   cuda-cudart-12-8 provides libcudart.so.12, which vLLM 0.27.1's pinned
+#   torchaudio==2.11.0 (a CUDA 12 build) needs at import time; the CUDA 13.3
+#   runtime image only ships libcudart.so.13.
 RUN curl -fsSL -o /tmp/cuda-keyring.deb \
         https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
     && dpkg -i /tmp/cuda-keyring.deb \
     && rm -f /tmp/cuda-keyring.deb \
     && apt-get update \
-    && apt-get install -y --no-install-recommends cuda-nvcc-13-3 cuda-driver-dev-13-3 \
+    && apt-get install -y --no-install-recommends cuda-nvcc-13-3 cuda-driver-dev-13-3 cuda-cudart-12-8 \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA stub drivers for container compatibility
