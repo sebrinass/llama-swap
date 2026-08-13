@@ -143,11 +143,14 @@ ARG VLLM_OMNI_VERSION=latest
 # constraints together, avoiding conflicts that arise when installing them
 # separately (the second install can upgrade/downgrade shared deps).
 #
-# vLLM 0.27+ pins torch==2.13.0, and the PyPI torch 2.13.0 wheel is a cu13
-# build (nvidia-cudnn/cusparselt/nccl-cu13), matching our CUDA 13.3 runtime.
-# The cu128 index has no torch 2.13.0 wheel, so uv pulls torch from PyPI.
-# We keep --extra-index-url cu128 + unsafe-best-match so torchcodec>=0.14
-# (only on PyPI; cu128 has <=0.11.1) and flashinfer resolve correctly.
+# vLLM 0.27+ pins torch==2.13.0 AND torchaudio==2.11.0.  The PyPI torch 2.13.0
+# wheel is a cu13 build, but torchaudio 2.11.0 only ships as a CUDA 12 build;
+# installing both from PyPI makes torchaudio's _check_cuda_version() fail
+# ("PyTorch has CUDA 13.0 whereas TorchAudio has 12.8").  The matching pair
+# exists on the cu126 index as torch==2.13.0+cu126 / torchaudio==2.11.0+cu126
+# (both CUDA 12.6).  Pointing --extra-index-url at cu126 + unsafe-best-match
+# makes uv prefer those local builds for torch/torchaudio/torchvision/torchcodec
+# while still resolving torchcodec>=0.14 and flashinfer correctly.
 #
 # --torch-backend=auto must NOT be used: uv reads CUDA_HOME and can fall back
 # to a CPU-only torch build, which breaks `import vllm`.
@@ -155,16 +158,9 @@ ARG VLLM_OMNI_VERSION=latest
 # vllm-gguf-plugin lets vLLM serve GGUF models directly (repo:quant or a
 # local .gguf + tokenizer).  Note: GGUF models do NOT support fp8 KV cache,
 # so --kv-cache-dtype fp8 must not be used with GGUF models.
-#
-# torchaudio is deliberately NOT pinned: vLLM 0.27.1 pins torchaudio==2.11.0
-# exactly (torch==2.13.0).  Pinning torchaudio>=2.13.0 here made the dependency
-# graph unsatisfiable (vllm==0.27.1 requires torchaudio==2.11.0).  Because vLLM
-# requires torchaudio==2.11.0 with no +cu128 local version, uv resolves the
-# plain PyPI build (PEP 440: 2.11.0+cu128 != 2.11.0), which pairs with the
-# torch==2.13.0 (cu13) wheel.
 RUN uv pip install "vllm==${VLLM_VERSION}" "vllm-omni==${VLLM_OMNI_VERSION}" \
     vllm-gguf-plugin \
-    --extra-index-url https://download.pytorch.org/whl/cu128 \
+    --extra-index-url https://download.pytorch.org/whl/cu126 \
     --index-strategy unsafe-best-match
 
 ARG BACKEND=cuda
