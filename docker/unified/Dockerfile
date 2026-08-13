@@ -155,8 +155,13 @@ ARG VLLM_OMNI_VERSION=latest
 # vllm-gguf-plugin lets vLLM serve GGUF models directly (repo:quant or a
 # local .gguf + tokenizer).  Note: GGUF models do NOT support fp8 KV cache,
 # so --kv-cache-dtype fp8 must not be used with GGUF models.
+#
+# We require torchaudio >= 2.13.0 to avoid the conflict where vllm-omni would
+# pull torchaudio==2.11.0+cu128 from cu128, which doesn't work with the
+# torch==2.13.0 (cu13) wheel from PyPI.
 RUN uv pip install "vllm==${VLLM_VERSION}" "vllm-omni==${VLLM_OMNI_VERSION}" \
     vllm-gguf-plugin \
+    "torchaudio>=2.13.0" \
     --extra-index-url https://download.pytorch.org/whl/cu128 \
     --index-strategy unsafe-best-match
 
