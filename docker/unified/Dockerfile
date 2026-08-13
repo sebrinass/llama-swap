@@ -137,23 +137,26 @@ ENV CUDA_HOME="/usr/local/cuda"
 ARG VLLM_VERSION=latest
 ARG VLLM_OMNI_VERSION=latest
 
-# Install vLLM + vLLM-Omni with PyTorch cu128 backend.
+# Install vLLM + vLLM-Omni + vLLM-GGUF-plugin with the CUDA PyTorch wheel.
 #
-# Both packages are installed in a single uv pip install so uv resolves all
+# All packages are installed in a single uv pip install so uv resolves all
 # constraints together, avoiding conflicts that arise when installing them
 # separately (the second install can upgrade/downgrade shared deps).
 #
-# We use --extra-index-url + --index-strategy=unsafe-best-match instead of
-# --torch-backend=cu128 because vLLM 0.26+ depends on torchcodec>=0.14, but
-# the cu128 index only has torchcodec<=0.11.1.  With --torch-backend=cu128,
-# uv restricts torchcodec to the cu128 index and fails.  With
-# --extra-index-url + unsafe-best-match, uv picks torch from the cu128 index
-# (torch==2.11.0+cu128) and torchcodec from PyPI (0.15.0), satisfying both.
+# vLLM 0.27+ pins torch==2.13.0, and the PyPI torch 2.13.0 wheel is a cu13
+# build (nvidia-cudnn/cusparselt/nccl-cu13), matching our CUDA 13.3 runtime.
+# The cu128 index has no torch 2.13.0 wheel, so uv pulls torch from PyPI.
+# We keep --extra-index-url cu128 + unsafe-best-match so torchcodec>=0.14
+# (only on PyPI; cu128 has <=0.11.1) and flashinfer resolve correctly.
 #
-# --torch-backend=auto must NOT be used: uv reads CUDA_HOME (13.3) and,
-# finding no cu133 PyTorch wheel, falls back to the CPU-only torch build,
-# which ships without libtorch_cuda.so and breaks `import vllm`.
+# --torch-backend=auto must NOT be used: uv reads CUDA_HOME and can fall back
+# to a CPU-only torch build, which breaks `import vllm`.
+#
+# vllm-gguf-plugin lets vLLM serve GGUF models directly (repo:quant or a
+# local .gguf + tokenizer).  Note: GGUF models do NOT support fp8 KV cache,
+# so --kv-cache-dtype fp8 must not be used with GGUF models.
 RUN uv pip install "vllm==${VLLM_VERSION}" "vllm-omni==${VLLM_OMNI_VERSION}" \
+    vllm-gguf-plugin \
     --extra-index-url https://download.pytorch.org/whl/cu128 \
     --index-strategy unsafe-best-match
 
@@ -166,10 +169,26 @@ FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS runtime-cuda
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
-ENV PATH="/usr/local/bin:${PATH}"
+ENV PATH="/usr/local/cuda/bin:/usr/local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 python3 python3.12-dev gcc curl ca-certificates ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── CUDA compiler toolchain (nvcc) for FlashInfer JIT ─────────────────
+# vLLM's fp8 KV cache (--kv-cache-dtype fp8) relies on FlashInfer, which
+# JIT-compiles CUDA kernels at runtime.  That needs nvcc + CUDA headers,
+# which the runtime image does not ship.  Add NVIDIA's CUDA apt repo and
+# install the CUDA 13.3 toolkit subset.
+#   cuda-nvcc-13-3 pulls in cuda-cudart-dev-13-3, libnvvm-13-3,
+#   cuda-crt-13-3 and libnvptxcompiler-13-3 automatically; cuda-driver-dev
+#   provides cuda.h for FlashInfer JIT compilation.
+RUN curl -fsSL -o /tmp/cuda-keyring.deb \
+        https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i /tmp/cuda-keyring.deb \
+    && rm -f /tmp/cuda-keyring.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends cuda-nvcc-13-3 cuda-driver-dev-13-3 \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA stub drivers for container compatibility

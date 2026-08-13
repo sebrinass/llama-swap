@@ -266,6 +266,31 @@ if [[ "$BACKEND" == "cuda" ]]; then
 fi
 echo "All expected binaries verified: ${VERIFIED_LIST}"
 
+# Static verification for the CUDA image (no GPU required).
+# Confirms nvcc (fp8 KV cache / FlashInfer JIT), vLLM version, the
+# kv-cache-dtype flag, and that vllm / flashinfer / gguf are installed.
+if [[ "$BACKEND" == "cuda" ]]; then
+    echo ""
+    echo "Running static verification (no GPU required)..."
+    if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
+        set -e
+        echo "--- nvcc ---"
+        nvcc --version | tail -1
+        echo "--- vllm version ---"
+        /opt/vllm-venv/bin/vllm --version
+        echo "--- kv-cache-dtype flag ---"
+        /opt/vllm-venv/bin/vllm serve --help | grep -A3 kv-cache-dtype | head -5
+        echo "--- pip list (vllm/flashinfer/gguf) ---"
+        /opt/vllm-venv/bin/pip list 2>/dev/null | grep -i -E "vllm|flashinfer|gguf"
+        echo "--- flashinfer import ---"
+        /opt/vllm-venv/bin/python -c "import flashinfer; print(flashinfer.__version__)"
+    '; then
+        echo "ERROR: Static verification failed for ${DOCKER_IMAGE_TAG}" >&2
+        exit 1
+    fi
+    echo "Static verification passed."
+fi
+
 echo ""
 echo "=========================================="
 echo "Building rootless image..."
