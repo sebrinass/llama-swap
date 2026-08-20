@@ -202,7 +202,21 @@ elif [[ "${GITHUB_ACTIONS:-}" == "true" && "${ACT:-}" != "true" ]]; then
     echo "Note: Using registry cache (${CACHE_REF})"
 fi
 
-DOCKER_BUILDKIT=1 docker buildx build --load "${BUILD_ARGS[@]}" "${SCRIPT_DIR}"
+# In CI the target tag is a registry ref (e.g. ghcr.io/...). `--load` would
+# materialize the full ~16GB image in the local docker daemon ON TOP of the
+# buildx cache (~20GB), which exceeds the runner's disk. Push directly from
+# the build cache instead, then prune the cache and pull the image back for
+# verification. Local builds (no registry in the tag) keep using `--load`.
+if [[ "${DOCKER_IMAGE_TAG}" == */* ]]; then
+    echo "Registry tag detected: building and pushing directly (avoids --load disk peak)"
+    DOCKER_BUILDKIT=1 docker buildx build --push "${BUILD_ARGS[@]}" "${SCRIPT_DIR}"
+    echo "Freeing build cache before pulling image for verification..."
+    docker buildx prune -af
+    docker pull "${DOCKER_IMAGE_TAG}"
+else
+    echo "Local tag detected: building with --load"
+    DOCKER_BUILDKIT=1 docker buildx build --load "${BUILD_ARGS[@]}" "${SCRIPT_DIR}"
+fi
 
 echo ""
 echo "=========================================="
