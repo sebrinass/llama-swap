@@ -4,18 +4,16 @@
 #
 # Usage:
 #   ./build-image.sh --cuda                              # Build CUDA image
-#   ./build-image.sh --vulkan                            # Build Vulkan image
 #   ./build-image.sh --cuda --no-cache                   # Build without cache
-#   LLAMA_REF=b1234 ./build-image.sh --vulkan            # Pin llama.cpp to a commit hash
-#   LLAMA_REF=v1.2.3 ./build-image.sh --cuda             # Pin llama.cpp to a tag
-#   SD_REF=master ./build-image.sh --cuda                # Pin stable-diffusion.cpp to a branch
-#   AUDIOCPP_REF=release-0.1 ./build-image.sh --cuda     # Pin audio.cpp to a branch
-#   LS_VERSION=170 ./build-image.sh --cuda               # Override llama-swap version
+#   LLAMA_REF=b1234 ./build-image.sh --cuda             # Pin llama.cpp to a commit hash
+#   LLAMA_REF=v1.2.3 ./build-image.sh --cuda            # Pin llama.cpp to a tag
+#   AUDIOCPP_REF=release-0.1 ./build-image.sh --cuda    # Pin audio.cpp to a branch
+#   LS_VERSION=170 ./build-image.sh --cuda              # Override llama-swap version
 #
 
 set -euo pipefail
 
-BACKEND=""
+BACKEND="cuda"
 NO_CACHE=false
 
 for arg in "$@"; do
@@ -23,25 +21,20 @@ for arg in "$@"; do
         --cuda)
             BACKEND="cuda"
             ;;
-        --vulkan)
-            BACKEND="vulkan"
-            ;;
         --no-cache)
             NO_CACHE=true
             ;;
         --help|-h)
-            echo "Usage: ./build-image.sh --cuda|--vulkan [--no-cache]"
+            echo "Usage: ./build-image.sh [--cuda] [--no-cache]"
             echo ""
             echo "Options:"
-            echo "  --cuda      Build CUDA image (NVIDIA GPUs)"
-            echo "  --vulkan    Build Vulkan image (AMD GPUs and compatible hardware)"
+            echo "  --cuda      Build the unified CUDA image (default)"
             echo "  --no-cache  Force rebuild without using Docker cache"
             echo "  --help, -h  Show this help message"
             echo ""
             echo "Environment variables:"
-            echo "  DOCKER_IMAGE_TAG     Set custom image tag (default: llama-swap:unified-cuda or llama-swap:unified-vulkan)"
+            echo "  DOCKER_IMAGE_TAG     Set custom image tag (default: llama-swap:unified-cuda)"
             echo "  LLAMA_REF            Pin llama.cpp to a commit, tag, or branch"
-            echo "  SD_REF               Pin stable-diffusion.cpp to a commit, tag, or branch"
             echo "  AUDIOCPP_REF         Pin audio.cpp to a commit, tag, or branch"
             echo "  LS_VERSION           Override llama-swap version (e.g., '170' or 'latest')"
             exit 0
@@ -49,19 +42,11 @@ for arg in "$@"; do
     esac
 done
 
-if [[ -z "$BACKEND" ]]; then
-    echo "Error: No backend specified. Please use --cuda or --vulkan."
-    echo ""
-    echo "Usage: ./build-image.sh --cuda|--vulkan [--no-cache]"
-    exit 1
-fi
-
 DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-llama-swap:unified-${BACKEND}}"
 CACHE_TAG="${CACHE_TAG:-unified-${BACKEND}-cache}"
 
 # Git repository URLs
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp.git"
-SD_REPO="https://github.com/leejet/stable-diffusion.cpp.git"
 AUDIOCPP_REPO="https://github.com/kigner/audio.cpp-webui.git"
 LLAMA_SWAP_REPO="https://github.com/mostlygeek/llama-swap.git"
 
@@ -127,19 +112,6 @@ else
     echo "llama.cpp: latest HEAD: ${LLAMA_HASH}"
 fi
 
-# Resolve stable-diffusion.cpp ref
-if [[ -n "${SD_REF:-}" ]]; then
-    SD_HASH=$(resolve_ref "${SD_REPO}" "${SD_REF}") || exit 1
-    echo "stable-diffusion.cpp: ${SD_REF} -> ${SD_HASH}"
-else
-    SD_HASH=$(get_latest_hash "${SD_REPO}")
-    if [[ -z "${SD_HASH}" ]]; then
-        echo "ERROR: Could not determine latest commit for stable-diffusion.cpp" >&2
-        exit 1
-    fi
-    echo "stable-diffusion.cpp: latest HEAD: ${SD_HASH}"
-fi
-
 # Resolve audio.cpp ref
 if [[ -n "${AUDIOCPP_REF:-}" ]]; then
     AUDIOCPP_HASH=$(resolve_ref "${AUDIOCPP_REPO}" "${AUDIOCPP_REF}") || exit 1
@@ -166,29 +138,37 @@ else
     echo "llama-swap: latest HEAD: ${LS_HASH}"
 fi
 
-# Resolve latest vLLM + vLLM-Omni versions from PyPI (CUDA only).
-# Injecting the version string as a build-arg forces BuildKit to re-run the
-# `uv pip install` layer whenever the version changes, avoiding stale cache
-# hits (same pattern used for LLAMA_COMMIT_HASH / SD_COMMIT_HASH above).
+# Resolve latest vLLM, vLLM-Omni and SGLang versions from PyPI at build time.
+# Injecting the version strings as build-args forces BuildKit to re-run the
+# uv install layers whenever a version changes, avoiding stale cache hits
+# (same pattern used for LLAMA_COMMIT_HASH / AUDIOCPP_COMMIT_HASH above).
+# Versions are deliberately NOT locked so images pick up new releases.
 VLLM_VERSION=""
 VLLM_OMNI_VERSION=""
-if [[ "$BACKEND" == "cuda" ]]; then
-    echo "Resolving vLLM version from PyPI..."
-    if ! VLLM_VERSION=$(curl -fsSL https://pypi.org/pypi/vllm/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
-        echo "ERROR: Failed to resolve vLLM version from PyPI" >&2
-        echo "  curl/python output: ${VLLM_VERSION}" >&2
-        exit 1
-    fi
-    echo "vllm: latest PyPI version: ${VLLM_VERSION}"
-
-    echo "Resolving vLLM-Omni version from PyPI..."
-    if ! VLLM_OMNI_VERSION=$(curl -fsSL https://pypi.org/pypi/vllm-omni/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
-        echo "ERROR: Failed to resolve vLLM-Omni version from PyPI" >&2
-        echo "  curl/python output: ${VLLM_OMNI_VERSION}" >&2
-        exit 1
-    fi
-    echo "vllm-omni: latest PyPI version: ${VLLM_OMNI_VERSION}"
+SGLANG_VERSION=""
+echo "Resolving vLLM version from PyPI..."
+if ! VLLM_VERSION=$(curl -fsSL https://pypi.org/pypi/vllm/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
+    echo "ERROR: Failed to resolve vLLM version from PyPI" >&2
+    echo "  curl/python output: ${VLLM_VERSION}" >&2
+    exit 1
 fi
+echo "vllm: latest PyPI version: ${VLLM_VERSION}"
+
+echo "Resolving vLLM-Omni version from PyPI..."
+if ! VLLM_OMNI_VERSION=$(curl -fsSL https://pypi.org/pypi/vllm-omni/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
+    echo "ERROR: Failed to resolve vLLM-Omni version from PyPI" >&2
+    echo "  curl/python output: ${VLLM_OMNI_VERSION}" >&2
+    exit 1
+fi
+echo "vllm-omni: latest PyPI version: ${VLLM_OMNI_VERSION}"
+
+echo "Resolving SGLang version from PyPI..."
+if ! SGLANG_VERSION=$(curl -fsSL https://pypi.org/pypi/sglang/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
+    echo "ERROR: Failed to resolve SGLang version from PyPI" >&2
+    echo "  curl/python output: ${SGLANG_VERSION}" >&2
+    exit 1
+fi
+echo "sglang: latest PyPI version: ${SGLANG_VERSION}"
 
 echo ""
 echo "=========================================="
@@ -200,22 +180,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKERFILE="${DOCKERFILE:-${SCRIPT_DIR}/Dockerfile}"
 
 BUILD_ARGS=(
-    --build-arg "BACKEND=${BACKEND}"
     --build-arg "LLAMA_COMMIT_HASH=${LLAMA_HASH}"
-    --build-arg "SD_COMMIT_HASH=${SD_HASH}"
     --build-arg "AUDIOCPP_COMMIT_HASH=${AUDIOCPP_HASH}"
     --build-arg "LS_VERSION=${LS_HASH}"
+    --build-arg "VLLM_VERSION=${VLLM_VERSION}"
+    --build-arg "VLLM_OMNI_VERSION=${VLLM_OMNI_VERSION}"
+    --build-arg "SGLANG_VERSION=${SGLANG_VERSION}"
     -t "${DOCKER_IMAGE_TAG}"
     -f "${DOCKERFILE}"
 )
-
-# vLLM build-args (CUDA only; empty for Vulkan, Dockerfile ARG defaults apply)
-if [[ "$BACKEND" == "cuda" ]]; then
-    BUILD_ARGS+=(
-        --build-arg "VLLM_VERSION=${VLLM_VERSION}"
-        --build-arg "VLLM_OMNI_VERSION=${VLLM_OMNI_VERSION}"
-    )
-fi
 
 if [[ "$NO_CACHE" == true ]]; then
     BUILD_ARGS+=(--no-cache)
@@ -237,10 +210,7 @@ echo "Verifying build artifacts..."
 echo "=========================================="
 echo ""
 
-EXPECTED_BINARIES=(llama-server llama-cli sd-server sd-cli audiocpp_server audiocpp_cli llama-swap)
-if [[ "$BACKEND" == "cuda" ]]; then
-    EXPECTED_BINARIES+=(vllm)
-fi
+EXPECTED_BINARIES=(llama-server llama-cli audiocpp_server audiocpp_cli llama-swap vllm)
 
 MISSING_BINARIES=()
 for binary in "${EXPECTED_BINARIES[@]}"; do
@@ -256,43 +226,43 @@ if [[ ${#MISSING_BINARIES[@]} -gt 0 ]]; then
     done
     echo ""
     echo "Try running with --no-cache flag:"
-    echo "  ./build-image.sh --${BACKEND} --no-cache"
+    echo "  ./build-image.sh --no-cache"
     exit 1
 fi
 
-VERIFIED_LIST="llama-server, llama-cli, sd-server, sd-cli, audiocpp_server, audiocpp_cli, llama-swap"
-if [[ "$BACKEND" == "cuda" ]]; then
-    VERIFIED_LIST="${VERIFIED_LIST}, vllm"
-fi
-echo "All expected binaries verified: ${VERIFIED_LIST}"
+echo "All expected binaries verified: llama-server, llama-cli, audiocpp_server, audiocpp_cli, llama-swap, vllm"
 
 # Static verification for the CUDA image (no GPU required).
 # Confirms nvcc (fp8 KV cache / FlashInfer JIT), vLLM version, the
-# kv-cache-dtype flag, and that vllm / flashinfer / gguf are installed.
-if [[ "$BACKEND" == "cuda" ]]; then
-    echo ""
-    echo "Running static verification (no GPU required)..."
-    # NOTE: avoid the `vllm` CLI here.  vLLM 0.27 runs device-type inference
-    # while building the CLI arg parser, which fails without a GPU ("Failed to
-    # infer device type").  Use direct Python imports / source greps instead.
-    if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
-        set -e
-        echo "--- nvcc ---"
-        nvcc --version | tail -1
-        echo "--- vllm version ---"
-        /opt/vllm-venv/bin/python -c "import vllm; print(vllm.__version__)"
-        echo "--- kv-cache-dtype flag ---"
-        grep -rhoE -- "--kv-cache-dtype|kv_cache_dtype" /opt/vllm-venv/lib/python3.12/site-packages/vllm/ | sort -u
-        echo "--- pip list (vllm/flashinfer/gguf) ---"
-        /opt/vllm-venv/bin/pip list 2>/dev/null | grep -i -E "vllm|flashinfer|gguf"
-        echo "--- flashinfer import ---"
-        /opt/vllm-venv/bin/python -c "import flashinfer; print(flashinfer.__version__)"
-    '; then
-        echo "ERROR: Static verification failed for ${DOCKER_IMAGE_TAG}" >&2
-        exit 1
-    fi
-    echo "Static verification passed."
+# kv-cache-dtype flag, vllm / flashinfer / gguf, and the SGLang version.
+echo ""
+echo "Running static verification (no GPU required)..."
+# NOTE: avoid the `vllm` CLI here.  vLLM 0.27 runs device-type inference
+# while building the CLI arg parser, which fails without a GPU ("Failed to
+# infer device type").  Use direct Python imports / source greps instead.
+if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
+    set -e
+    echo "--- nvcc ---"
+    nvcc --version | tail -1
+    echo "--- vllm version ---"
+    /opt/vllm-venv/bin/python -c "import vllm; print(vllm.__version__)"
+    echo "--- kv-cache-dtype flag (vllm) ---"
+    grep -rhoE -- "--kv-cache-dtype|kv_cache_dtype" /opt/vllm-venv/lib/python3.12/site-packages/vllm/ | sort -u
+    echo "--- pip list (vllm/flashinfer/gguf) ---"
+    /opt/vllm-venv/bin/pip list 2>/dev/null | grep -i -E "vllm|flashinfer|gguf"
+    echo "--- flashinfer import ---"
+    /opt/vllm-venv/bin/python -c "import flashinfer; print(flashinfer.__version__)"
+    echo "--- sglang version ---"
+    /opt/sglang-venv/bin/python -c "import sglang; print(sglang.__version__)"
+    echo "--- kv-cache-dtype flag (sglang) ---"
+    grep -rhoE -- "kv_cache_dtype|kv-cache-dtype" /opt/sglang-venv/lib/python3.12/site-packages/sglang/ | sort -u
+    echo "--- sglang pip list ---"
+    /opt/sglang-venv/bin/pip list 2>/dev/null | grep -i -E "sglang|torch|numba" | head -5
+'; then
+    echo "ERROR: Static verification failed for ${DOCKER_IMAGE_TAG}" >&2
+    exit 1
 fi
+echo "Static verification passed."
 
 echo ""
 echo "=========================================="
@@ -307,7 +277,7 @@ USER root
 RUN groupadd --system --gid 10001 llama-swap && \\
     useradd --system --uid 10001 --gid 10001 \\
       --home /app --shell /sbin/nologin llama-swap && \\
-    chown -R 10001:10001 /etc/llama-swap /models /opt/vllm-venv
+    chown -R 10001:10001 /etc/llama-swap /models /opt/vllm-venv /opt/sglang-venv
 USER 10001
 EOF
 
@@ -324,17 +294,8 @@ echo "  ${ROOTLESS_TAG}"
 echo ""
 echo "Built with:"
 echo "  llama.cpp:            ${LLAMA_HASH}"
-echo "  stable-diffusion.cpp: ${SD_HASH}"
 echo "  audio.cpp:            ${AUDIOCPP_HASH}"
 echo "  llama-swap:           $(docker run --rm --entrypoint cat "${DOCKER_IMAGE_TAG}" /versions.txt | grep llama-swap | cut -d' ' -f2-)"
 echo ""
-if [[ "$BACKEND" == "vulkan" ]]; then
-    echo "Run with:"
-    echo "  docker run -it --rm --device /dev/dri:/dev/dri ${DOCKER_IMAGE_TAG}"
-    echo ""
-    echo "Note: For AMD GPUs, you may also need:"
-    echo "  docker run -it --rm --device /dev/dri:/dev/dri --group-add video ${DOCKER_IMAGE_TAG}"
-else
-    echo "Run with:"
-    echo "  docker run -it --rm --gpus all ${DOCKER_IMAGE_TAG}"
-fi
+echo "Run with:"
+echo "  docker run -it --rm --gpus all ${DOCKER_IMAGE_TAG}"

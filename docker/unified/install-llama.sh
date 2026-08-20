@@ -1,10 +1,11 @@
 #!/bin/bash
 # Install llama.cpp - clone, build, and install binaries
-# Usage: BACKEND=cuda|vulkan ./install-llama.sh <commit_hash>
+# Builds a single binary with BOTH CUDA and Vulkan backends enabled, so it
+# runs on NVIDIA, AMD and Intel GPUs from the same unified image.
+# Usage: ./install-llama.sh <commit_hash>
 set -e
 
 COMMIT_HASH="${1:-master}"
-BACKEND="${BACKEND:-cuda}"
 
 mkdir -p /install/bin
 
@@ -19,7 +20,7 @@ fi
 git fetch --depth=1 origin "${COMMIT_HASH}"
 git checkout FETCH_HEAD
 
-# Common cmake flags
+# Dual backend: CUDA + Vulkan enabled at the same time
 CMAKE_FLAGS=(
     -DGGML_NATIVE=OFF
     -DBUILD_SHARED_LIBS=OFF
@@ -29,29 +30,19 @@ CMAKE_FLAGS=(
     -DLLAMA_BUILD_TESTS=OFF
     -DGGML_LTO=ON
     -DGGML_CUDA_FA_ALL_QUANTS=ON
+    -DGGML_CUDA=ON
+    -DGGML_CUDA_NCCL=ON
+    -DGGML_VULKAN=ON
+    "-DCMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES:?CMAKE_CUDA_ARCHITECTURES must be set}"
+    "-DCMAKE_CUDA_FLAGS=-allow-unsupported-compiler"
+    "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath-link,/usr/local/cuda/lib64/stubs -lcuda"
 )
-
-if [ "$BACKEND" = "cuda" ]; then
-    CMAKE_FLAGS+=(
-        -DGGML_CUDA=ON
-        -DGGML_CUDA_NCCL=ON
-        -DGGML_VULKAN=OFF
-        "-DCMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES:?CMAKE_CUDA_ARCHITECTURES must be set}"
-        "-DCMAKE_CUDA_FLAGS=-allow-unsupported-compiler"
-        "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath-link,/usr/local/cuda/lib64/stubs -lcuda"
-    )
-elif [ "$BACKEND" = "vulkan" ]; then
-    CMAKE_FLAGS+=(
-        -DGGML_CUDA=OFF
-        -DGGML_VULKAN=ON
-    )
-fi
 
 TARGETS=(llama-cli llama-server llama-tts)
 
 rm -rf build/CMakeCache.txt build/CMakeFiles 2>/dev/null || true
 
-echo "=== Building llama.cpp for ${BACKEND} ==="
+echo "=== Building llama.cpp (CUDA + Vulkan) ==="
 cmake -B build "${CMAKE_FLAGS[@]}"
 cmake --build build --config Release -j"$(nproc)" --target "${TARGETS[@]}"
 

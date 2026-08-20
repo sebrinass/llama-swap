@@ -9,20 +9,6 @@ models:
       -hf bartowski/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M
       --port ${PORT}
 
-  "image":
-    checkEndpoint: /
-    cmd: |
-      /app/sd-server
-      --listen-port 9999
-      --diffusion-fa
-      --diffusion-model /models/z_image_turbo-Q8_0.gguf
-      --vae /models/ae.safetensors
-      --llm /models/qwen3-4b-instruct-2507-q8_0.gguf
-      --offload-to-cpu
-      --cfg-scale 1.0
-      --height 512 --width 512
-      --steps 8
-
   "tts":
     checkEndpoint: /health
     cmd: >
@@ -31,3 +17,13 @@ models:
       --family qwen3_tts
       --model /models/qwen3-tts
       --port ${PORT}
+
+  # SGLang is the primary agent-reasoning backend (RadixAttention prefix
+  # sharing). Uses the isolated /opt/sglang-venv; --kv-cache-dtype fp8_e4m3
+  # halves KV cache memory (best on Ampere sm86 and newer).
+  "sglang-agent":
+    cmd: >
+      /opt/sglang-venv/bin/python -m sglang.launch_server
+      --model-path Qwen/Qwen3-7B-Instruct
+      --port ${PORT}
+      --kv-cache-dtype fp8_e4m3
