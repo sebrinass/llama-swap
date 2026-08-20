@@ -150,11 +150,14 @@ ENV CUDA_HOME="/usr/local/cuda"
 
 ARG SGLANG_VERSION=latest
 
-# SGLang pins torch==2.11.0; the cu126 index provides the matching CUDA 12.6
-# wheels.  unsafe-best-match makes uv prefer those local builds.
-RUN uv pip install --prerelease=allow "sglang==${SGLANG_VERSION}" \
-    --extra-index-url https://download.pytorch.org/whl/cu126 \
-    --index-strategy unsafe-best-match
+# SGLang is installed from the default PyPI index only. SGLang 0.5.x pins
+# torch/torchaudio/torchcodec and needs cuda-python>=13.0, matching the
+# CUDA 13 torch family (torch 2.11.0 + torchvision 0.26.0) that plain PyPI
+# ships. Pointing at the cu126 extra index would pull a CUDA 12.6 torchvision
+# while torch stays CUDA 13 -> RuntimeError at import (torchvision
+# _check_cuda_version). Keeping sglang unpinned follows the same "not locked"
+# pattern as vllm: a new upstream release automatically triggers a rebuild.
+RUN uv pip install --prerelease=allow "sglang==${SGLANG_VERSION}"
 
 # ── Runtime ───────────────────────────────────────────────────────────
 
