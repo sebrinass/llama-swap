@@ -272,6 +272,15 @@ if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
     grep -rhoE -- "kv_cache_dtype|kv-cache-dtype" /opt/sglang-venv/lib/python3.12/site-packages/sglang/ | sort -u
     echo "--- sglang pip list ---"
     /opt/sglang-venv/bin/pip list 2>/dev/null | grep -i -E "sglang|torch|numba" | head -5
+    echo "--- vulkan ICDs (nvidia + intel) ---"
+    ls /usr/share/vulkan/icd.d/
+    ls /usr/share/vulkan/icd.d/ | grep -iE "nvidia|intel"
+    echo "--- libvulkan_intel.so linked deps ---"
+    if ldd /usr/lib/x86_64-linux-gnu/libvulkan_intel.so | grep -qi "not found"; then
+        echo "ERROR: libvulkan_intel.so has missing shared library deps" >&2
+        exit 1
+    fi
+    echo "Vulkan ICD check OK"
 '; then
     echo "ERROR: Static verification failed for ${DOCKER_IMAGE_TAG}" >&2
     exit 1

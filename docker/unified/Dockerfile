@@ -167,8 +167,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:/usr/local/cuda-12.8/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}"
 ENV PATH="/usr/local/cuda/bin:/usr/local/bin:${PATH}"
 
+# libvulkan1 = Vulkan loader; mesa-vulkan-drivers = Intel (ANV) + AMD (RADV)
+# user-space Vulkan drivers, so the same llama.cpp dual-backend binary can
+# use Intel/AMD iGPUs via /dev/dri in addition to NVIDIA via CUDA. Ships
+# /usr/share/vulkan/icd.d/intel_icd.json alongside the NVIDIA ICD.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 python3 python3.12-dev gcc curl ca-certificates ffmpeg \
+    libvulkan1 mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
 
 # ── CUDA compiler toolchain (nvcc) for FlashInfer JIT ─────────────────
