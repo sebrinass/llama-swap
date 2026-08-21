@@ -272,19 +272,22 @@ if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
     grep -rhoE -- "kv_cache_dtype|kv-cache-dtype" /opt/sglang-venv/lib/python3.12/site-packages/sglang/ | sort -u
     echo "--- sglang pip list ---"
     /opt/sglang-venv/bin/pip list 2>/dev/null | grep -i -E "sglang|torch|numba" | head -5
-    echo "--- vulkan ICDs (nvidia + intel) ---"
+    echo "--- vulkan ICDs (intel only) ---"
     ls /usr/share/vulkan/icd.d/
-    ls /usr/share/vulkan/icd.d/ | grep -iE "nvidia|intel"
-    echo "--- AMD (radeon) must be absent ---"
-    if ls /usr/share/vulkan/icd.d/ | grep -iq "radeon\|amd"; then
-        echo "ERROR: AMD vulkan ICD present, expected removed" >&2
+    # Only intel_icd.json (Intel ANV) may remain. radeon/nouveau/asahi/
+    # gfxstream/virtio/hasvk/lvp (lavapipe) must all be gone.
+    UNWANTED=$(ls /usr/share/vulkan/icd.d/ 2>/dev/null | grep -iE "radeon|nouveau|asahi|gfxstream|virtio|hasvk|lvp" || true)
+    if [[ -n "${UNWANTED}" ]]; then
+        echo "ERROR: unwanted vulkan ICDs present:" >&2
+        echo "${UNWANTED}" >&2
         exit 1
     fi
-    if ls /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so >/dev/null 2>&1; then
-        echo "ERROR: libvulkan_radeon.so present, expected removed" >&2
+    if ! ls /usr/share/vulkan/icd.d/intel_icd.json >/dev/null 2>&1; then
+        echo "ERROR: intel_icd.json missing" >&2
         exit 1
     fi
-    echo "AMD vulkan driver removed OK"
+    echo "Vulkan ICD selection OK (intel only) (JSON files present:)"
+    ls /usr/share/vulkan/icd.d/
     echo "--- libvulkan_intel.so linked deps ---"
     if ldd /usr/lib/x86_64-linux-gnu/libvulkan_intel.so | grep -qi "not found"; then
         echo "ERROR: libvulkan_intel.so has missing shared library deps" >&2

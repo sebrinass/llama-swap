@@ -172,14 +172,23 @@ ENV PATH="/usr/local/cuda/bin:/usr/local/bin:${PATH}"
 # use the Intel iGPU via /dev/dri in addition to NVIDIA via CUDA. Ships
 # /usr/share/vulkan/icd.d/intel_icd.json alongside the NVIDIA ICD.
 #
-# The runtime only owns Intel iGPUs, so the AMD (RADV) user-space driver and
-# its ICD manifest are removed to slim the image. Intel (ANV) + lavapipe
-# (software) are kept.
+# The runtime only owns NVIDIA (CUDA) + Intel (Vulkan). Mesa installs a full
+# set of user-space Vulkan drivers, but only Intel ANV (intel_icd.json /
+# libvulkan_intel.so) is wanted. Every other ICD manifest and its .so are
+# removed (AMD/radeon, Nouveau, Asahi, gfxstream, virtio, Intel HASVK, and
+# lavapipe/LLVMpipe software renderer) so the loader only sees Intel.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 python3 python3.12-dev gcc curl ca-certificates ffmpeg \
     libvulkan1 mesa-vulkan-drivers \
+    && find /usr/share/vulkan/icd.d -name '*.json' \
+         ! -name 'intel_icd.json' -delete \
     && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so \
-    && rm -f /usr/share/vulkan/icd.d/radv_icd.json \
+    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_nouveau.so \
+    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_intel_hasvk.so \
+    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_asahi.so \
+    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_gfxstream.so \
+    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_virtio.so \
+    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_lvp.so \
     && rm -rf /var/lib/apt/lists/*
 
 # ── CUDA compiler toolchain (nvcc) for FlashInfer JIT ─────────────────
