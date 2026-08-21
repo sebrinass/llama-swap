@@ -272,6 +272,12 @@ if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
     grep -rhoE -- "kv_cache_dtype|kv-cache-dtype" /opt/sglang-venv/lib/python3.12/site-packages/sglang/ | sort -u
     echo "--- sglang pip list ---"
     /opt/sglang-venv/bin/pip list 2>/dev/null | grep -i -E "sglang|torch|numba" | head -5
+    echo "--- curand headers in /usr/local/cuda/include (flashinfer JIT) ---"
+    if ! ls /usr/local/cuda/include/curand.h >/dev/null 2>&1; then
+        echo "ERROR: curand.h missing (flashinfer sampling JIT will fail)" >&2
+        exit 1
+    fi
+    echo "curand.h present; count: $(ls /usr/local/cuda/include/curand*.h 2>/dev/null | wc -l)"
     echo "--- vulkan ICDs (intel only) ---"
     ls /usr/share/vulkan/icd.d/
     # Only intel_icd.json (Intel ANV) may remain. radeon/nouveau/asahi/

@@ -261,6 +261,17 @@ ENV CUDA_HOME="/usr/local/cuda"
 # Copy SGLang venv
 COPY --from=sglang-build /opt/sglang-venv /opt/sglang-venv
 
+# SGLang's flashinfer JIT-compiles kernels at runtime (e.g. the sampling
+# kernel) and needs CUDA's full curand headers.  /usr/local/cuda/include/
+# ships only a trimmed set.  nvidia-cu13 (a flashinfer dependency inside
+# sglang-venv) bundles the complete curand*.h, so copy those over.  Guarded:
+# if the path is absent (package-layout change) skip rather than fail.
+RUN mkdir -p /usr/local/cuda/include && \
+    if [ -d /opt/sglang-venv/lib/python3.12/site-packages/nvidia/cu13/include ]; then \
+        cp /opt/sglang-venv/lib/python3.12/site-packages/nvidia/cu13/include/curand*.h /usr/local/cuda/include/; \
+    fi && \
+    echo "curand headers: $(ls /usr/local/cuda/include/curand*.h 2>/dev/null | wc -l)"
+
 RUN ldconfig
 
 COPY config.example.yaml /etc/llama-swap/config/config.yaml
