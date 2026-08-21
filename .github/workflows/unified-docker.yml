@@ -14,7 +14,7 @@ on:
       llama_cpp_ref:
         description: "llama.cpp commit hash, tag, or branch"
         required: false
-        default: "master"
+        default: "9ee9fc04c"
       audiocpp_ref:
         description: "audio.cpp commit hash, tag, or branch"
         required: false
@@ -103,7 +103,7 @@ jobs:
 
       - name: Build unified Docker image (${{ matrix.backend }})
         env:
-          LLAMA_REF: ${{ inputs.llama_cpp_ref || 'master' }}
+          LLAMA_REF: ${{ inputs.llama_cpp_ref || '9ee9fc04c' }}
           AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'release-0.1' }}
           LS_VERSION: ${{ inputs.llama_swap_version || 'main' }}
           DOCKER_IMAGE_TAG: ghcr.io/${{ github.repository }}:unified-${{ matrix.backend }}

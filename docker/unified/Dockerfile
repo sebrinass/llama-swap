@@ -169,11 +169,17 @@ ENV PATH="/usr/local/cuda/bin:/usr/local/bin:${PATH}"
 
 # libvulkan1 = Vulkan loader; mesa-vulkan-drivers = Intel (ANV) + AMD (RADV)
 # user-space Vulkan drivers, so the same llama.cpp dual-backend binary can
-# use Intel/AMD iGPUs via /dev/dri in addition to NVIDIA via CUDA. Ships
+# use the Intel iGPU via /dev/dri in addition to NVIDIA via CUDA. Ships
 # /usr/share/vulkan/icd.d/intel_icd.json alongside the NVIDIA ICD.
+#
+# The runtime only owns Intel iGPUs, so the AMD (RADV) user-space driver and
+# its ICD manifest are removed to slim the image. Intel (ANV) + lavapipe
+# (software) are kept.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 python3 python3.12-dev gcc curl ca-certificates ffmpeg \
     libvulkan1 mesa-vulkan-drivers \
+    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so \
+    && rm -f /usr/share/vulkan/icd.d/radv_icd.json \
     && rm -rf /var/lib/apt/lists/*
 
 # ── CUDA compiler toolchain (nvcc) for FlashInfer JIT ─────────────────
