@@ -275,6 +275,16 @@ if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
     echo "--- vulkan ICDs (nvidia + intel) ---"
     ls /usr/share/vulkan/icd.d/
     ls /usr/share/vulkan/icd.d/ | grep -iE "nvidia|intel"
+    echo "--- AMD (radeon) must be absent ---"
+    if ls /usr/share/vulkan/icd.d/ | grep -iq "radeon\|amd"; then
+        echo "ERROR: AMD vulkan ICD present, expected removed" >&2
+        exit 1
+    fi
+    if ls /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so >/dev/null 2>&1; then
+        echo "ERROR: libvulkan_radeon.so present, expected removed" >&2
+        exit 1
+    fi
+    echo "AMD vulkan driver removed OK"
     echo "--- libvulkan_intel.so linked deps ---"
     if ldd /usr/lib/x86_64-linux-gnu/libvulkan_intel.so | grep -qi "not found"; then
         echo "ERROR: libvulkan_intel.so has missing shared library deps" >&2
