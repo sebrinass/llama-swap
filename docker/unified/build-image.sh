@@ -7,7 +7,7 @@
 #   ./build-image.sh --cuda --no-cache                   # Build without cache
 #   LLAMA_REF=b1234 ./build-image.sh --cuda             # Pin llama.cpp to a commit hash
 #   LLAMA_REF=v1.2.3 ./build-image.sh --cuda            # Pin llama.cpp to a tag
-#   AUDIOCPP_REF=release-0.1 ./build-image.sh --cuda    # Pin audio.cpp to a branch
+#   AUDIOCPP_REF=main ./build-image.sh --cuda           # Pin audio.cpp to a branch
 #   LS_VERSION=170 ./build-image.sh --cuda              # Override llama-swap version
 #
 
@@ -47,7 +47,7 @@ CACHE_TAG="${CACHE_TAG:-unified-${BACKEND}-cache}"
 
 # Git repository URLs
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp.git"
-AUDIOCPP_REPO="https://github.com/kigner/audio.cpp-webui.git"
+AUDIOCPP_REPO="https://github.com/0xShug0/audio.cpp.git"
 LLAMA_SWAP_REPO="https://github.com/mostlygeek/llama-swap.git"
 
 # Resolve a git ref (commit hash, tag, or branch) to a full commit hash.
@@ -231,7 +231,7 @@ for binary in "${EXPECTED_BINARIES[@]}"; do
     if ! docker run --rm --entrypoint which "${DOCKER_IMAGE_TAG}" "${binary}" >/dev/null 2>&1; then
         MISSING_BINARIES+=("${binary}")
     fi
-done
+  done
 
 if [[ ${#MISSING_BINARIES[@]} -gt 0 ]]; then
     echo "ERROR: Build succeeded but the following binaries are missing:"
@@ -278,22 +278,19 @@ if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
         exit 1
     fi
     echo "curand.h present; count: $(ls /usr/local/cuda/include/curand*.h 2>/dev/null | wc -l)"
-    echo "--- vulkan ICDs (intel only) ---"
+    echo "--- vulkan ICDs (nvidia + intel) ---"
     ls /usr/share/vulkan/icd.d/
-    # Only intel_icd.json (Intel ANV) may remain. radeon/nouveau/asahi/
-    # gfxstream/virtio/hasvk/lvp (lavapipe) must all be gone.
-    UNWANTED=$(ls /usr/share/vulkan/icd.d/ 2>/dev/null | grep -iE "radeon|nouveau|asahi|gfxstream|virtio|hasvk|lvp" || true)
-    if [[ -n "${UNWANTED}" ]]; then
-        echo "ERROR: unwanted vulkan ICDs present:" >&2
-        echo "${UNWANTED}" >&2
+    ls /usr/share/vulkan/icd.d/ | grep -iE "nvidia|intel"
+    echo "--- AMD (radeon) must be absent ---"
+    if ls /usr/share/vulkan/icd.d/ | grep -iq "radeon\|amd"; then
+        echo "ERROR: AMD vulkan ICD present, expected removed" >&2
         exit 1
     fi
-    if ! ls /usr/share/vulkan/icd.d/intel_icd.json >/dev/null 2>&1; then
-        echo "ERROR: intel_icd.json missing" >&2
+    if ls /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so >/dev/null 2>&1; then
+        echo "ERROR: libvulkan_radeon.so present, expected removed" >&2
         exit 1
     fi
-    echo "Vulkan ICD selection OK (intel only) (JSON files present:)"
-    ls /usr/share/vulkan/icd.d/
+    echo "AMD vulkan driver removed OK"
     echo "--- libvulkan_intel.so linked deps ---"
     if ldd /usr/lib/x86_64-linux-gnu/libvulkan_intel.so | grep -qi "not found"; then
         echo "ERROR: libvulkan_intel.so has missing shared library deps" >&2

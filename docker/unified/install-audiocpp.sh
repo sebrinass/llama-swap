@@ -3,7 +3,7 @@
 # Usage: BACKEND=cuda|vulkan ./install-audiocpp.sh <commit_hash_or_branch>
 set -e
 
-COMMIT_HASH="${1:-release-0.1}"
+COMMIT_HASH="${1:-main}"
 BACKEND="${BACKEND:-cuda}"
 
 mkdir -p /install/bin
@@ -14,7 +14,7 @@ mkdir -p /src/audio.cpp
 cd /src/audio.cpp
 if [ ! -d .git ]; then
     git init
-    git remote add origin https://github.com/kigner/audio.cpp-webui.git
+    git remote add origin https://github.com/0xShug0/audio.cpp.git
 fi
 git fetch --depth=1 origin "${COMMIT_HASH}"
 git checkout FETCH_HEAD

@@ -45,7 +45,7 @@ WORKDIR /build
 # ── Build audio.cpp ────────────────────────────────────────────────────
 
 FROM builder-base AS audiocpp-build
-ARG AUDIOCPP_COMMIT_HASH=release-0.1
+ARG AUDIOCPP_COMMIT_HASH=main
 COPY install-audiocpp.sh /build/
 RUN --mount=type=cache,id=ccache,target=/ccache \
     --mount=type=cache,id=audiocpp,target=/src/audio.cpp/build \
@@ -172,23 +172,14 @@ ENV PATH="/usr/local/cuda/bin:/usr/local/bin:${PATH}"
 # use the Intel iGPU via /dev/dri in addition to NVIDIA via CUDA. Ships
 # /usr/share/vulkan/icd.d/intel_icd.json alongside the NVIDIA ICD.
 #
-# The runtime only owns NVIDIA (CUDA) + Intel (Vulkan). Mesa installs a full
-# set of user-space Vulkan drivers, but only Intel ANV (intel_icd.json /
-# libvulkan_intel.so) is wanted. Every other ICD manifest and its .so are
-# removed (AMD/radeon, Nouveau, Asahi, gfxstream, virtio, Intel HASVK, and
-# lavapipe/LLVMpipe software renderer) so the loader only sees Intel.
+# The runtime only owns Intel iGPUs, so the AMD (RADV) user-space driver and
+# its ICD manifest are removed to slim the image. Intel (ANV) + lavapipe
+# (software) are kept.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 python3 python3.12-dev gcc curl ca-certificates ffmpeg \
     libvulkan1 mesa-vulkan-drivers \
-    && find /usr/share/vulkan/icd.d -name '*.json' \
-         ! -name 'intel_icd.json' -delete \
     && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so \
-    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_nouveau.so \
-    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_intel_hasvk.so \
-    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_asahi.so \
-    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_gfxstream.so \
-    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_virtio.so \
-    && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_lvp.so \
+    && rm -f /usr/share/vulkan/icd.d/radv_icd.json \
     && rm -rf /var/lib/apt/lists/*
 
 # ── CUDA compiler toolchain (nvcc) for FlashInfer JIT ─────────────────
@@ -281,7 +272,7 @@ RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     echo "audio.cpp: ${AUDIOCPP_COMMIT_HASH}" >> /versions.txt && \
     echo "llama-swap: $(cat /tmp/llama-swap-version)" >> /versions.txt && \
     echo "cuda_version: 13.3.0" >> /versions.txt && \
-    echo "vllm: $(/opt/vllm-venv/bin/python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
+    echo "vllm: $(/opt/vllm-venv/bin/python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo 'installed') " >> /versions.txt && \
     echo "vllm-omni: $(/opt/vllm-venv/bin/python -c 'import vllm_omni; print(vllm_omni.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
     echo "sglang: $(/opt/sglang-venv/bin/python -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
     echo "build_timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /versions.txt
