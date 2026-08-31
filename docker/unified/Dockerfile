@@ -13,7 +13,7 @@
 # Each project has its own install script that handles cloning, building,
 # and installing binaries. Build stages are independent for cache efficiency.
 
-# ── Builder base (CUDA devel + Vulkan SDK) ───────────────────────────
+# Builder base (CUDA devel + Vulkan SDK)
 # A single builder image that carries both the CUDA toolchain and the
 # Vulkan SDK, so llama.cpp can be compiled with GGML_CUDA + GGML_VULKAN
 # enabled at the same time (dual backend).
@@ -42,7 +42,7 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
 
 WORKDIR /build
 
-# ── Build audio.cpp ────────────────────────────────────────────────────
+# Build audio.cpp
 
 FROM builder-base AS audiocpp-build
 ARG AUDIOCPP_COMMIT_HASH=main
@@ -51,7 +51,7 @@ RUN --mount=type=cache,id=ccache,target=/ccache \
     --mount=type=cache,id=audiocpp,target=/src/audio.cpp/build \
     BACKEND=cuda bash /build/install-audiocpp.sh "${AUDIOCPP_COMMIT_HASH}"
 
-# ── Build llama.cpp (dual backend: CUDA + Vulkan, slowest build) ─────
+# Build llama.cpp (dual backend: CUDA + Vulkan, slowest build)
 
 FROM builder-base AS llama-build
 ARG LLAMA_COMMIT_HASH=master
@@ -60,14 +60,14 @@ RUN --mount=type=cache,id=ccache,target=/ccache \
     --mount=type=cache,id=llama,target=/src/llama.cpp/build \
     bash /build/install-llama.sh "${LLAMA_COMMIT_HASH}"
 
-# ── Download llama-swap release binary ────────────────────────────────
+# Download llama-swap release binary
 
 FROM builder-base AS llama-swap-download
 ARG LS_VERSION=latest
 COPY install-llama-swap.sh /build/
 RUN bash /build/install-llama-swap.sh "${LS_VERSION}"
 
-# ── Install vLLM + vLLM-Omni (CUDA only) ──────────────────────────────
+# Install vLLM + vLLM-Omni (CUDA only)
 #
 # Uses prebuilt wheels via uv — no source compilation needed.
 # vLLM's kernels are precompiled; sm_86 (Ampere) is covered by default wheels.
@@ -123,7 +123,7 @@ RUN uv pip install "vllm==${VLLM_VERSION}" "vllm-omni==${VLLM_OMNI_VERSION}" \
     --extra-index-url https://download.pytorch.org/whl/cu126 \
     --index-strategy unsafe-best-match
 
-# ── Install SGLang (CUDA only, separate venv) ─────────────────────────
+# Install SGLang (CUDA only, separate venv)
 #
 # SGLang is kept in its own venv because its torch/numba pins conflict with
 # vLLM's (vLLM 0.27 needs torch==2.13.0 + numba==0.65.0, SGLang 0.5.17 needs
@@ -159,7 +159,7 @@ ARG SGLANG_VERSION=latest
 # pattern as vllm: a new upstream release automatically triggers a rebuild.
 RUN uv pip install --prerelease=allow "sglang==${SGLANG_VERSION}"
 
-# ── Runtime ───────────────────────────────────────────────────────────
+# Runtime
 
 FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS runtime
 
@@ -179,10 +179,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 python3 python3.12-dev gcc curl ca-certificates ffmpeg \
     libvulkan1 mesa-vulkan-drivers \
     && rm -f /usr/lib/x86_64-linux-gnu/libvulkan_radeon.so \
-    && rm -f /usr/share/vulkan/icd.d/radv_icd.json \
+    && rm -f /usr/share/vulkan/icd.d/radeon_icd.json \
     && rm -rf /var/lib/apt/lists/*
 
-# ── CUDA compiler toolchain (nvcc) for FlashInfer JIT ─────────────────
+# CUDA compiler toolchain (nvcc) for FlashInfer JIT
 # vLLM's fp8 KV cache (--kv-cache-dtype fp8) relies on FlashInfer, which
 # JIT-compiles CUDA kernels at runtime.  That needs nvcc + CUDA headers,
 # which the runtime image does not ship.  Add NVIDIA's CUDA apt repo and
