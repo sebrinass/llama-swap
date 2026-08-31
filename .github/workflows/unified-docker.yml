@@ -18,7 +18,7 @@ on:
       audiocpp_ref:
         description: "audio.cpp commit hash, tag, or branch"
         required: false
-        default: "release-0.1"
+        default: "main"
       llama_swap_version:
         description: "llama-swap version (e.g. v198, latest, main)"
         required: false
@@ -104,7 +104,7 @@ jobs:
       - name: Build unified Docker image (${{ matrix.backend }})
         env:
           LLAMA_REF: ${{ inputs.llama_cpp_ref || 'master' }}
-          AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'release-0.1' }}
+          AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'main' }}
           LS_VERSION: ${{ inputs.llama_swap_version || 'main' }}
           DOCKER_IMAGE_TAG: ghcr.io/${{ github.repository }}:unified-${{ matrix.backend }}
           BUILDX_BUILDER: ${{ env.ACT == 'true' && 'llama-swap-builder' || '' }}
