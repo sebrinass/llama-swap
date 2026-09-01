@@ -234,6 +234,10 @@ WORKDIR /app
 # Copy audio.cpp binaries
 COPY --from=audiocpp-build /install/bin/audiocpp_server /usr/local/bin/
 COPY --from=audiocpp-build /install/bin/audiocpp_cli /usr/local/bin/
+# Copy the model_specs catalog too, so audiocpp_cli/server can resolve model
+# contracts from disk (the runtime searches for model_specs/<family>.json),
+# independent of the deployment-build embedded fallback.
+COPY --from=audiocpp-build /install/share/audiocpp/model_specs /usr/local/share/audiocpp/model_specs
 
 # Copy llama.cpp binaries (statically linked, CUDA + Vulkan dual backend)
 COPY --from=llama-build /install/bin/llama-server /usr/local/bin/
