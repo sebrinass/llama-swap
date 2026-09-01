@@ -22,6 +22,12 @@ git checkout FETCH_HEAD
 # Common cmake flags
 CMAKE_FLAGS=(
     -DCMAKE_BUILD_TYPE=Release
+    # Self-contained build: compile the whole model_specs/*.json catalogs into
+    # engine_runtime (generated/model_specs.inc) so audiocpp_cli/server work
+    # without a source tree or an external model_specs/ dir. audio.cpp main
+    # builds the specs as runtime-only data by default, which would leave the
+    # image with bare binaries and no model contract at runtime.
+    -DAUDIOCPP_DEPLOYMENT_BUILD=ON
     -DENGINE_ENABLE_LLAMAFILE=ON
     -DENGINE_ENABLE_OPENMP=ON
     -DENGINE_BUILD_EXAMPLES=OFF
@@ -51,7 +57,10 @@ fi
 
 TARGETS=(audiocpp_cli audiocpp_server)
 
-rm -rf build/CMakeCache.txt build/CMakeFiles 2>/dev/null || true
+# Drop CMake cache + generated spec headers so a changed AUDIOCPP_DEPLOYMENT_BUILD
+# (or a changed model_specs catalog) always rebuilds. The build/ dir is a BuildKit
+# cache mount, so without this an old configure/output could be reused.
+rm -rf build/CMakeCache.txt build/CMakeFiles build/generated 2>/dev/null || true
 
 echo "=== Building audio.cpp for ${BACKEND} ==="
 cmake -S . -B build "${CMAKE_FLAGS[@]}"
