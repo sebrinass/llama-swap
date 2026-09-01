@@ -28,6 +28,9 @@ CMAKE_FLAGS=(
     # builds the specs as runtime-only data by default, which would leave the
     # image with bare binaries and no model contract at runtime.
     -DAUDIOCPP_DEPLOYMENT_BUILD=ON
+    # Build the full model catalog (all families), not just core.
+    # Some downstream models (e.g. qwen3_tts) are only included in full.
+    -DAUDIOCPP_MODEL_SET=full
     -DENGINE_ENABLE_LLAMAFILE=ON
     -DENGINE_ENABLE_OPENMP=ON
     -DENGINE_BUILD_EXAMPLES=OFF
@@ -73,5 +76,16 @@ for bin in "${TARGETS[@]}"; do
     fi
     cp "build/bin/$bin" "/install/bin/"
 done
+
+# Belt-and-suspenders: also drop the model_specs/*.json catalog into the image.
+# The deployment build embeds them in engine_runtime, but shipping the directory
+# too gives the CLI/server an external source found via the runtime's upward
+# search (install model_specs/<family>.json), so it works even if the embedded
+# fallback is unavailable (e.g. model set narrowed to core).
+mkdir -p /install/share/audiocpp
+rm -rf /install/share/audiocpp/model_specs
+cp -r model_specs /install/share/audiocpp/model_specs
 echo "=== audio.cpp build complete ==="
 ls -la /install/bin/
+echo "=== model_specs catalog ==="
+ls /install/share/audiocpp/model_specs/ | head -30
