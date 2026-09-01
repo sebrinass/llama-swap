@@ -47,6 +47,9 @@ WORKDIR /build
 FROM builder-base AS audiocpp-build
 ARG AUDIOCPP_COMMIT_HASH=main
 COPY install-audiocpp.sh /build/
+# NOTE: cache id is deliberately bumped (audiocpp-sel) after switching audio.cpp
+# back to upstream 0xShug0/audio.cpp@main with AUDIOCPP_DEPLOYMENT_BUILD=ON, so a
+# stale build/ dir from the old fork/backend cannot be reused.
 RUN --mount=type=cache,id=ccache,target=/ccache \
     --mount=type=cache,id=audiocpp-sel,target=/src/audio.cpp/build \
     BACKEND=cuda bash /build/install-audiocpp.sh "${AUDIOCPP_COMMIT_HASH}"
@@ -273,8 +276,8 @@ RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     echo "llama-swap: $(cat /tmp/llama-swap-version)" >> /versions.txt && \
     echo "cuda_version: 13.3.0" >> /versions.txt && \
     echo "vllm: $(/opt/vllm-venv/bin/python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo 'installed') " >> /versions.txt && \
-    echo "vllm-omni: $(/opt/vllm-venv/bin/python -c 'import vllm_omni; print(vllm_omni.__version__)' 2>/dev/null || echo 'installed') " >> /versions.txt && \
-    echo "sglang: $(/opt/sglang-venv/bin/python -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo 'installed') " >> /versions.txt && \
+    echo "vllm-omni: $(/opt/vllm-venv/bin/python -c 'import vllm_omni; print(vllm_omni.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
+    echo "sglang: $(/opt/sglang-venv/bin/python -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
     echo "build_timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /versions.txt
 
 RUN mkdir -p /models && chown ${RUN_UID}:${RUN_UID} /models && \
@@ -282,4 +285,4 @@ RUN mkdir -p /models && chown ${RUN_UID}:${RUN_UID} /models && \
 WORKDIR /models
 USER ${RUN_UID}
 ENTRYPOINT ["llama-swap"]
-CMD ["-config", "/etc/llama-swap/config/config.yaml", "-listen", "0.0.0.0:8080"]versions.txt && \\\n    echo \"sglang: $(/opt/sglang-venv/bin/python -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo 'installed') \" >> /versions.txt && \\\n    echo \"build_timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)\" >> /versions.txt\n\nRUN mkdir -p /models && chown ${RUN_UID}:${RUN_UID} /models && \\\n    chmod -R a+rX /opt/vllm-venv /opt/sglang-venv\nWORKDIR /models\nUSER ${RUN_UID}\nENTRYPOINT [\"llama-swap\"]\nCMD [\"-config\", \"/etc/llama-swap/config/config.yaml\", \"-listen\", \"0.0.0.0:8080\"]\n"}]
+CMD ["-config", "/etc/llama-swap/config/config.yaml", "-listen", "0.0.0.0:8080"]
