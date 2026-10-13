@@ -66,7 +66,14 @@ vision = "gpu" if os.environ.get("STRATA_VISION") == "1" else "none"
 setup.cmake_build(setup.ROOT, setup.ROOT / "build", "strata",
     ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_BUILD_TESTS=OFF",
      f"-DCMAKE_CUDA_ARCHITECTURES={arch}", f"-DCMAKE_CUDA_COMPILER={nvcc}",
-     f"-DSTRATA_GGML_DIR={llama}"], None, "build-strata.bat")
+     f"-DSTRATA_GGML_DIR={llama}",
+     # Portable (AVX2 baseline) build: this image is built in the cloud, where the
+     # runner CPU has AVX-512, but it runs on ordinary AVX2 machines (e.g. the
+     # Unraid box's Intel ES sample, AVX2 only) - a native build there dies with
+     # SIGILL.  Same configuration as Strata's own prebuilt release; Strata's
+     # AVX-512 kernels stay in the binary behind their runtime CPU checks.
+     "-DSTRATA_PORTABLE=ON"],
+    None, "build-strata.bat")
 if vision != "none":
     setup.cmake_build(setup.ROOT / "tools" / "vision", setup.ROOT / "build-vision", "strata-vision",
         [f"-DLLAMA_DIR={llama}", "-DSTRATA_VISION_CUDA=ON", "-DSTRATA_PORTABLE=OFF",
@@ -91,5 +98,15 @@ PYEOF
 rm -rf /src/Strata/build /src/Strata/build-vision
 mkdir -p /install/strata
 cp -a /src/Strata/. /install/strata/
+
+# The venv was created at /src/Strata during the build, so its console scripts
+# (cmake, ninja, ccmake, ...) carry that path in their shebang and fail with
+# "not found" once the tree lives at /opt/strata.  Rewrite them (text scripts
+# only - the loop skips the ELF binaries and the python symlinks).
+for f in /install/strata/.venv/bin/*; do
+    if head -1 "$f" 2>/dev/null | grep -q "^#!/src/Strata/.venv/bin/python"; then
+        sed -i "1s|.*|#!/opt/strata/.venv/bin/python3|" "$f"
+    fi
+done
 echo "=== Strata build complete ==="
 ls -la /install/strata/engine/
