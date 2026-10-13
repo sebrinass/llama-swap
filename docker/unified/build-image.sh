@@ -301,7 +301,7 @@ if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
     echo "AMD vulkan driver removed OK"
     echo "--- strata ---"
     test -x /opt/strata/engine/strata && echo "strata engine present: $(/opt/strata/engine/strata --version 2>/dev/null | head -1 || echo ok)"
-    /opt/strata/.venv/bin/python -c "import numpy, jinja2, yaml, requests, tqdm, PIL; print('strata venv ok')"
+    /opt/strata/.venv/bin/python -c "import numpy, jinja2, yaml, requests, tqdm, PIL" && echo "strata venv ok"
     echo "--- libvulkan_intel.so linked deps ---"
     if ldd /usr/lib/x86_64-linux-gnu/libvulkan_intel.so | grep -qi "not found"; then
         echo "ERROR: libvulkan_intel.so has missing shared library deps" >&2
