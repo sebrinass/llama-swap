@@ -20,6 +20,8 @@ LLAMA_CPP_COMMIT="3cf03257f219afbe7334045ff7c6a06ac68c627d"
 
 STRATA_ARCH="${CMAKE_CUDA_ARCHITECTURES:-86}"
 STRATA_VISION="${STRATA_BUILD_VISION:-0}"
+# exported: the build heredoc below runs as a child process and reads these
+export STRATA_ARCH STRATA_VISION
 export NVCC="$(command -v nvcc)"
 
 echo "=== Strata ${STRATA_REF} (arch ${STRATA_ARCH}, vision ${STRATA_VISION}) ==="
