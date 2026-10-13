@@ -162,6 +162,18 @@ ARG SGLANG_VERSION=latest
 # pattern as vllm: a new upstream release automatically triggers a rebuild.
 RUN uv pip install --prerelease=allow "sglang==${SGLANG_VERSION}"
 
+# Build Strata: native C++/CUDA engine (sm_86, Tesla A2 pair) + Python venv.
+# No torch, no CUDA pip wheels - the engine links this image's CUDA libs, so
+# the image delta is ~1 GB (vs ~30 GB for the SGLang venv). Compiled here like
+# llama.cpp; the runtime only executes the binary.
+FROM builder-base AS strata-build
+ARG STRATA_COMMIT_HASH=v0.1.43.1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12-venv unzip \
+    && rm -rf /var/lib/apt/lists/*
+COPY install-strata.sh /build/
+RUN bash /build/install-strata.sh "${STRATA_COMMIT_HASH}"
+
 # Runtime
 
 FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS runtime
@@ -213,6 +225,7 @@ COPY --from=builder-base /usr/lib/x86_64-linux-gnu/libnccl.so.2 /usr/lib/x86_64-
 
 ARG LLAMA_COMMIT_HASH=unknown
 ARG AUDIOCPP_COMMIT_HASH=unknown
+ARG STRATA_COMMIT_HASH=v0.1.43.1
 ARG RUN_UID=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -272,6 +285,16 @@ RUN mkdir -p /usr/local/cuda/include && \
 
 RUN ldconfig
 
+# Copy Strata (engine + venv + serve tree) built for sm_86, plus the one-time
+# model-prep helper. The engine links this image's CUDA libs; libatomic is the
+# only runtime lib the base image lacks.
+COPY --from=strata-build /install/strata /opt/strata
+COPY strata-first-setup.sh /opt/strata/first-setup.sh
+RUN chmod +x /opt/strata/first-setup.sh \
+    && apt-get update && apt-get install -y --no-install-recommends libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH="/opt/strata/.venv/bin:${PATH}"
+
 COPY config.example.yaml /etc/llama-swap/config/config.yaml
 
 # Version tracking
@@ -282,6 +305,7 @@ RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     echo "vllm: $(/opt/vllm-venv/bin/python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo 'installed') " >> /versions.txt && \
     echo "vllm-omni: $(/opt/vllm-venv/bin/python -c 'import vllm_omni; print(vllm_omni.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
     echo "sglang: $(/opt/sglang-venv/bin/python -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt && \
+    echo "strata: ${STRATA_COMMIT_HASH} (engine arch ${CMAKE_CUDA_ARCHITECTURES:-86})" >> /versions.txt && \
     echo "build_timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /versions.txt
 
 RUN mkdir -p /models && chown ${RUN_UID}:${RUN_UID} /models && \

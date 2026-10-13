@@ -138,6 +138,13 @@ else
     echo "llama-swap: latest HEAD: ${LS_HASH}"
 fi
 
+# Resolve Strata ref (pinned to a tag by default: Strata ships almost daily,
+# so the pin is bumped deliberately, not by the 3-day cron picking up main).
+STRATA_REPO="https://github.com/Niko1221/Strata.git"
+STRATA_REF="${STRATA_REF:-v0.1.43.1}"
+STRATA_HASH=$(resolve_ref "${STRATA_REPO}" "${STRATA_REF}") || exit 1
+echo "strata: ${STRATA_REF} -> ${STRATA_HASH}"
+
 # Resolve latest vLLM, vLLM-Omni and SGLang versions from PyPI at build time.
 # Injecting the version strings as build-args forces BuildKit to re-run the
 # uv install layers whenever a version changes, avoiding stale cache hits
@@ -186,6 +193,7 @@ BUILD_ARGS=(
     --build-arg "VLLM_VERSION=${VLLM_VERSION}"
     --build-arg "VLLM_OMNI_VERSION=${VLLM_OMNI_VERSION}"
     --build-arg "SGLANG_VERSION=${SGLANG_VERSION}"
+    --build-arg "STRATA_COMMIT_HASH=${STRATA_HASH}"
     -t "${DOCKER_IMAGE_TAG}"
     -f "${DOCKERFILE}"
 )
@@ -291,6 +299,9 @@ if ! docker run --rm --entrypoint bash "${DOCKER_IMAGE_TAG}" -c '
         exit 1
     fi
     echo "AMD vulkan driver removed OK"
+    echo "--- strata ---"
+    test -x /opt/strata/engine/strata && echo "strata engine present: $(/opt/strata/engine/strata --version 2>/dev/null | head -1 || echo ok)"
+    /opt/strata/.venv/bin/python -c "import numpy, jinja2, yaml, requests, tqdm, PIL; print('strata venv ok')"
     echo "--- libvulkan_intel.so linked deps ---"
     if ldd /usr/lib/x86_64-linux-gnu/libvulkan_intel.so | grep -qi "not found"; then
         echo "ERROR: libvulkan_intel.so has missing shared library deps" >&2
@@ -316,7 +327,7 @@ USER root
 RUN groupadd --system --gid 10001 llama-swap && \\
     useradd --system --uid 10001 --gid 10001 \\
       --home /app --shell /sbin/nologin llama-swap && \\
-    chown -R 10001:10001 /etc/llama-swap /models /opt/vllm-venv /opt/sglang-venv
+    chown -R 10001:10001 /etc/llama-swap /models /opt/vllm-venv /opt/sglang-venv /opt/strata
 USER 10001
 EOF
 

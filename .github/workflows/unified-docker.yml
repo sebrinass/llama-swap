@@ -23,6 +23,10 @@ on:
         description: "llama-swap version (e.g. v198, latest, main)"
         required: false
         default: "main"
+      strata_ref:
+        description: "Strata commit hash, tag, or branch"
+        required: false
+        default: "v0.1.43.1"
       build_cuda:
         description: "Build CUDA image"
         type: boolean
@@ -106,6 +110,7 @@ jobs:
           LLAMA_REF: ${{ inputs.llama_cpp_ref || 'master' }}
           AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'main' }}
           LS_VERSION: ${{ inputs.llama_swap_version || 'main' }}
+          STRATA_REF: ${{ inputs.strata_ref || 'v0.1.43.1' }}
           DOCKER_IMAGE_TAG: ghcr.io/${{ github.repository }}:unified-${{ matrix.backend }}
           BUILDX_BUILDER: ${{ env.ACT == 'true' && 'llama-swap-builder' || '' }}
         run: |

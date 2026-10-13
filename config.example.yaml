@@ -643,3 +643,26 @@ peers:
         provider:
           data_collection: "deny"
           zdr: true
+
+# ---------------------------------------------------------------------------
+# Strata (Qwen3.8-Flash-Next, 125B MoE) - native C++/CUDA engine built into
+# this image (sm_86, layer-split across the GPU pair). Commented out by
+# default; uncomment after the one-time model prep:
+#   docker exec -it <llama-swap-container> /opt/strata/first-setup.sh IQ2_XS
+#   (mainland China: STRATA_SOURCE=modelscope docker exec ... first-setup.sh)
+# The engine loads 32-62 GB into RAM and takes the whole GPU pair, so llama-swap
+# unloads the other models while it runs (and vice versa) - that is the point.
+# ---------------------------------------------------------------------------
+#  "strata-flash-next":
+#    cmd: >-
+#      sh -c 'cd /opt/strata && exec .venv/bin/python serve/server.py
+#      --engine strata --config /strata/strata-iq2_xs.json --port ${PORT}'
+#    # Strata refuses proxied Host headers it does not know (DNS rebinding
+#    # protection); list every name/IP your clients use to reach llama-swap.
+#    # Requests by IP or to localhost always pass.
+#    env:
+#      - "STRATA_ALLOWED_HOSTS=localhost,127.0.0.1"
+#    checkEndpoint: /health
+#    # first load downloads/prepares nothing (first-setup did it) but still
+#    # takes 1-3 min; after that, idle unload returns the cards to vLLM
+#    ttl: 1800
