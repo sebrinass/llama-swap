@@ -138,10 +138,18 @@ else
     echo "llama-swap: latest HEAD: ${LS_HASH}"
 fi
 
-# Resolve Strata ref (pinned to a tag by default: Strata ships almost daily,
-# so the pin is bumped deliberately, not by the 3-day cron picking up main).
+# Resolve Strata ref. Default "latest": follow Strata's newest GitHub release so
+# the 3-day cron automatically picks up upstream fixes (the slow conversation
+# checkpoint replay #2316, the coarse-restore #2228, ...). Pin an exact tag via
+# STRATA_REF / the workflow's strata_ref input whenever a build must be
+# reproducible - Strata ships daily and a broken release can slip in.
 STRATA_REPO="https://github.com/Niko1221/Strata.git"
-STRATA_REF="${STRATA_REF:-v0.1.43.1}"
+STRATA_REF="${STRATA_REF:-latest}"
+if [[ "${STRATA_REF}" == "latest" || "${STRATA_REF}" == "release" ]]; then
+    STRATA_REF=$(curl -fsSL https://api.github.com/repos/Niko1221/Strata/releases/latest \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])') || {
+        echo "ERROR: could not resolve the latest Strata release tag" >&2; exit 1; }
+fi
 STRATA_HASH=$(resolve_ref "${STRATA_REPO}" "${STRATA_REF}") || exit 1
 echo "strata: ${STRATA_REF} -> ${STRATA_HASH}"
 
