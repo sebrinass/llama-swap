@@ -27,6 +27,41 @@ on:
         description: "Strata ref: 'latest' release, tag, or commit"
         required: false
         default: "latest"
+      include_llama:
+        description: "Include llama.cpp (CUDA+Vulkan dual backend)"
+        type: boolean
+        required: false
+        default: true
+      include_audiocpp:
+        description: "Include audio.cpp (TTS/ASR)"
+        type: boolean
+        required: false
+        default: true
+      include_llama_swap:
+        description: "Include the llama-swap binary (image entrypoint)"
+        type: boolean
+        required: false
+        default: true
+      include_vllm:
+        description: "Include vLLM + vLLM-Omni + vllm-gguf-plugin"
+        type: boolean
+        required: false
+        default: true
+      include_sglang:
+        description: "Include SGLang"
+        type: boolean
+        required: false
+        default: true
+      include_strata:
+        description: "Include Strata (Qwen3.8-Flash-Next engine)"
+        type: boolean
+        required: false
+        default: true
+      include_sd:
+        description: "Opt in to stable-diffusion.cpp (off by default)"
+        type: boolean
+        required: false
+        default: false
       build_cuda:
         description: "Build CUDA image"
         type: boolean
@@ -37,6 +72,13 @@ on:
         type: boolean
         required: false
         default: true
+
+# One build at a time per ref: a manually dispatched run (e.g. with components
+# switched off) cancels the push-triggered full build instead of racing it for
+# the same ghcr tags.
+concurrency:
+  group: unified-docker-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -111,6 +153,17 @@ jobs:
           AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'main' }}
           LS_VERSION: ${{ inputs.llama_swap_version || 'main' }}
           STRATA_REF: ${{ inputs.strata_ref || 'latest' }}
+          # Component toggles: only an explicit `false` (manual run with the
+          # box unchecked) disables a component; push/schedule builds keep
+          # everything (inputs.* is null there, so `== false` is false -> 1).
+          INCLUDE_LLAMA: ${{ inputs.include_llama == false && '0' || '1' }}
+          INCLUDE_AUDIOCPP: ${{ inputs.include_audiocpp == false && '0' || '1' }}
+          INCLUDE_LLAMA_SWAP: ${{ inputs.include_llama_swap == false && '0' || '1' }}
+          INCLUDE_VLLM: ${{ inputs.include_vllm == false && '0' || '1' }}
+          INCLUDE_SGLANG: ${{ inputs.include_sglang == false && '0' || '1' }}
+          INCLUDE_STRATA: ${{ inputs.include_strata == false && '0' || '1' }}
+          # SD is opt-in: only an explicit `true` enables it.
+          INCLUDE_SD: ${{ inputs.include_sd == true && '1' || '0' }}
           DOCKER_IMAGE_TAG: ghcr.io/${{ github.repository }}:unified-${{ matrix.backend }}
           BUILDX_BUILDER: ${{ env.ACT == 'true' && 'llama-swap-builder' || '' }}
         run: |
