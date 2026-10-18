@@ -5,10 +5,20 @@
 #   llama.cpp (CUDA + Vulkan dual backend)  -> INCLUDE_LLAMA
 #   audio.cpp                               -> INCLUDE_AUDIOCPP
 #   llama-swap binary (image entrypoint)    -> INCLUDE_LLAMA_SWAP
-#   vLLM + vLLM-Omni + vLLM-GGUF-Plugin     -> INCLUDE_VLLM
+#   vLLM (core)                             -> INCLUDE_VLLM
+#   vLLM-Omni (opt-in, OFF)                 -> INCLUDE_VLLM_OMNI
+#   vLLM-GGUF-plugin (opt-in, OFF)          -> INCLUDE_VLLM_GGUF
 #   SGLang (isolated venv)                  -> INCLUDE_SGLANG
 #   Strata (Qwen3.8-Flash-Next engine)      -> INCLUDE_STRATA
 #   stable-diffusion.cpp (opt-in, OFF)      -> INCLUDE_SD
+#
+# The two vLLM add-ons default OFF (opt-in like SD): as of 2026-10-18 no model
+# in the live config uses either of them, and vllm-omni's stable releases lag
+# vLLM's own versioning (0.30.0 vs 0.31.0 -> RoutedExpertsLists ImportError),
+# so shipping them by default only adds breakage surface. They are installed
+# in the SAME uv pip install as vLLM on purpose: splitting the install would
+# let uv re-resolve shared deps (torch etc.) and break the carefully tuned
+# torch/torchaudio cu126 pairing.
 #
 # Single unified image: CUDA-based runtime, llama.cpp compiled with both
 # CUDA and Vulkan backends so the same binary works on NVIDIA, AMD and
@@ -38,6 +48,10 @@ ARG INCLUDE_LLAMA=1
 ARG INCLUDE_AUDIOCPP=1
 ARG INCLUDE_LLAMA_SWAP=1
 ARG INCLUDE_VLLM=1
+# vLLM add-ons are opt-in (default 0), like SD: unused by the live config and
+# vllm-omni's stable track lags vLLM's versioning.
+ARG INCLUDE_VLLM_OMNI=0
+ARG INCLUDE_VLLM_GGUF=0
 ARG INCLUDE_SGLANG=1
 ARG INCLUDE_STRATA=1
 # SD is opt-in: default 0 keeps the historical image contents (no SD).
@@ -118,7 +132,7 @@ RUN if [ "$INCLUDE_LLAMA_SWAP" = "1" ]; then \
         mkdir -p /install/bin && echo "disabled" > /install/llama-swap-version; \
     fi
 
-# Install vLLM + vLLM-Omni (CUDA only)
+# Install vLLM (CUDA only)
 #
 # Uses prebuilt wheels via uv — no source compilation needed.
 # vLLM's kernels are precompiled; sm_86 (Ampere) is covered by default wheels.
@@ -127,6 +141,8 @@ FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS vllm-build
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG INCLUDE_VLLM=1
+ARG INCLUDE_VLLM_OMNI=0
+ARG INCLUDE_VLLM_GGUF=0
 
 # gcc + python3.12-dev are required for Triton JIT kernel compilation at
 # runtime (e.g. cuda_utils.cu needs Python.h; triton needs a C compiler).
@@ -149,7 +165,7 @@ ENV CUDA_HOME="/usr/local/cuda"
 ARG VLLM_VERSION=latest
 ARG VLLM_OMNI_VERSION=latest
 
-# Install vLLM + vLLM-Omni + vLLM-GGUF-plugin with the CUDA PyTorch wheel.
+# Install vLLM (+ optional vLLM-Omni / vLLM-GGUF-plugin) with the CUDA PyTorch wheel.
 #
 # All packages are installed in a single uv pip install so uv resolves all
 # constraints together, avoiding conflicts that arise when installing them
@@ -167,15 +183,24 @@ ARG VLLM_OMNI_VERSION=latest
 # --torch-backend=auto must NOT be used: uv reads CUDA_HOME and can fall back
 # to a CPU-only torch build, which breaks `import vllm`.
 #
-# vllm-gguf-plugin lets vLLM serve GGUF models directly (repo:quant or a
-# local .gguf + tokenizer).  Note: GGUF models do NOT support fp8 KV cache,
-# so --kv-cache-dtype fp8 must not be used with GGUF models.
+# vllm-omni / vllm-gguf-plugin are opt-in (INCLUDE_VLLM_OMNI /
+# INCLUDE_VLLM_GGUF). The optional packages are appended to the SAME install
+# via `set --` (the RUN shell is /bin/sh, no arrays) so dependency resolution
+# stays in one pass. vllm-gguf-plugin lets vLLM serve GGUF models directly
+# (repo:quant or a local .gguf + tokenizer).  Note: GGUF models do NOT support
+# fp8 KV cache, so --kv-cache-dtype fp8 must not be used with GGUF models.
 #
 # INCLUDE_VLLM=0 leaves an empty (but valid) venv behind, so the runtime
 # COPY --from below stays a no-op instead of failing.
 RUN if [ "$INCLUDE_VLLM" = "1" ]; then \
-        uv pip install "vllm==${VLLM_VERSION}" "vllm-omni==${VLLM_OMNI_VERSION}" \
-            vllm-gguf-plugin \
+        set -- "vllm==${VLLM_VERSION}"; \
+        if [ "$INCLUDE_VLLM_OMNI" = "1" ]; then \
+            set -- "$@" "vllm-omni==${VLLM_OMNI_VERSION}"; \
+        fi; \
+        if [ "$INCLUDE_VLLM_GGUF" = "1" ]; then \
+            set -- "$@" vllm-gguf-plugin; \
+        fi; \
+        uv pip install "$@" \
             --extra-index-url https://download.pytorch.org/whl/cu126 \
             --index-strategy unsafe-best-match; \
     else \
@@ -276,6 +301,8 @@ ARG INCLUDE_LLAMA=1
 ARG INCLUDE_AUDIOCPP=1
 ARG INCLUDE_LLAMA_SWAP=1
 ARG INCLUDE_VLLM=1
+ARG INCLUDE_VLLM_OMNI=0
+ARG INCLUDE_VLLM_GGUF=0
 ARG INCLUDE_SGLANG=1
 ARG INCLUDE_STRATA=1
 ARG INCLUDE_SD=0
@@ -283,6 +310,8 @@ ENV INCLUDE_LLAMA=${INCLUDE_LLAMA} \
     INCLUDE_AUDIOCPP=${INCLUDE_AUDIOCPP} \
     INCLUDE_LLAMA_SWAP=${INCLUDE_LLAMA_SWAP} \
     INCLUDE_VLLM=${INCLUDE_VLLM} \
+    INCLUDE_VLLM_OMNI=${INCLUDE_VLLM_OMNI} \
+    INCLUDE_VLLM_GGUF=${INCLUDE_VLLM_GGUF} \
     INCLUDE_SGLANG=${INCLUDE_SGLANG} \
     INCLUDE_STRATA=${INCLUDE_STRATA} \
     INCLUDE_SD=${INCLUDE_SD}
@@ -429,10 +458,20 @@ RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     echo "cuda_version: 13.3.0" >> /versions.txt && \
     if [ "$INCLUDE_VLLM" = "1" ]; then \
         echo "vllm: $(/opt/vllm-venv/bin/python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt; \
-        echo "vllm-omni: $(/opt/vllm-venv/bin/python -c 'import vllm_omni; print(vllm_omni.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt; \
+        if [ "$INCLUDE_VLLM_OMNI" = "1" ]; then \
+            echo "vllm-omni: $(/opt/vllm-venv/bin/python -c 'import vllm_omni; print(vllm_omni.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt; \
+        else \
+            echo "vllm-omni: disabled (INCLUDE_VLLM_OMNI=0)" >> /versions.txt; \
+        fi; \
+        if [ "$INCLUDE_VLLM_GGUF" = "1" ]; then \
+            echo "vllm-gguf-plugin: $(/opt/vllm-venv/bin/python -c 'import importlib.metadata as m; print(m.version("vllm-gguf-plugin"))' 2>/dev/null || echo 'installed')" >> /versions.txt; \
+        else \
+            echo "vllm-gguf-plugin: disabled (INCLUDE_VLLM_GGUF=0)" >> /versions.txt; \
+        fi; \
     else \
         echo "vllm: disabled (INCLUDE_VLLM=0)" >> /versions.txt; \
         echo "vllm-omni: disabled (INCLUDE_VLLM=0)" >> /versions.txt; \
+        echo "vllm-gguf-plugin: disabled (INCLUDE_VLLM=0)" >> /versions.txt; \
     fi && \
     if [ "$INCLUDE_SGLANG" = "1" ]; then \
         echo "sglang: $(/opt/sglang-venv/bin/python -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo 'installed')" >> /versions.txt; \

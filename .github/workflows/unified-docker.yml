@@ -43,10 +43,20 @@ on:
         required: false
         default: true
       include_vllm:
-        description: "Include vLLM + vLLM-Omni + vllm-gguf-plugin"
+        description: "Include vLLM (core venv)"
         type: boolean
         required: false
         default: true
+      include_vllm_omni:
+        description: "Opt in to vLLM-Omni (version auto-aligned to the vLLM line)"
+        type: boolean
+        required: false
+        default: false
+      include_vllm_gguf:
+        description: "Opt in to vllm-gguf-plugin (GGUF models via vLLM)"
+        type: boolean
+        required: false
+        default: false
       include_sglang:
         description: "Include SGLang"
         type: boolean
@@ -160,6 +170,10 @@ jobs:
           INCLUDE_AUDIOCPP: ${{ inputs.include_audiocpp == false && '0' || '1' }}
           INCLUDE_LLAMA_SWAP: ${{ inputs.include_llama_swap == false && '0' || '1' }}
           INCLUDE_VLLM: ${{ inputs.include_vllm == false && '0' || '1' }}
+          # vLLM add-ons are opt-in: only an explicit `true` (manual run with
+          # the box checked) enables them; push/schedule builds leave them out.
+          INCLUDE_VLLM_OMNI: ${{ inputs.include_vllm_omni == true && '1' || '0' }}
+          INCLUDE_VLLM_GGUF: ${{ inputs.include_vllm_gguf == true && '1' || '0' }}
           INCLUDE_SGLANG: ${{ inputs.include_sglang == false && '0' || '1' }}
           INCLUDE_STRATA: ${{ inputs.include_strata == false && '0' || '1' }}
           # SD is opt-in: only an explicit `true` enables it.

@@ -23,6 +23,10 @@ INCLUDE_LLAMA="${INCLUDE_LLAMA:-1}"
 INCLUDE_AUDIOCPP="${INCLUDE_AUDIOCPP:-1}"
 INCLUDE_LLAMA_SWAP="${INCLUDE_LLAMA_SWAP:-1}"
 INCLUDE_VLLM="${INCLUDE_VLLM:-1}"
+# vLLM add-ons are opt-in (default off, like SD): unused by the live config,
+# and vllm-omni's stable track lags vLLM's versioning.
+INCLUDE_VLLM_OMNI="${INCLUDE_VLLM_OMNI:-0}"
+INCLUDE_VLLM_GGUF="${INCLUDE_VLLM_GGUF:-0}"
 INCLUDE_SGLANG="${INCLUDE_SGLANG:-1}"
 INCLUDE_STRATA="${INCLUDE_STRATA:-1}"
 # SD is opt-in (default off): nothing is built unless explicitly requested.
@@ -48,6 +52,12 @@ for arg in "$@"; do
         --no-vllm)
             INCLUDE_VLLM=0
             ;;
+        --vllm-omni)
+            INCLUDE_VLLM_OMNI=1
+            ;;
+        --vllm-gguf)
+            INCLUDE_VLLM_GGUF=1
+            ;;
         --no-sglang)
             INCLUDE_SGLANG=0
             ;;
@@ -58,20 +68,22 @@ for arg in "$@"; do
             INCLUDE_SD=1
             ;;
         --help|-h)
-            echo "Usage: ./build-image.sh [--cuda] [--no-cache] [--no-llama] [--no-audiocpp] [--no-llama-swap] [--no-vllm] [--no-sglang] [--no-strata] [--sd]"
+            echo "Usage: ./build-image.sh [--cuda] [--no-cache] [--no-llama] [--no-audiocpp] [--no-llama-swap] [--no-vllm] [--no-sglang] [--no-strata] [--vllm-omni] [--vllm-gguf] [--sd]"
             echo ""
             echo "Options:"
             echo "  --cuda      Build the unified CUDA image (default)"
             echo "  --no-cache  Force rebuild without using Docker cache"
             echo "  --help, -h  Show this help message"
             echo ""
-            echo "Component switches (default: every component included, except SD):"
+            echo "Component switches (default: every component included, except SD / vLLM add-ons):"
             echo "  --no-llama       Skip llama.cpp (CUDA+Vulkan build, slowest stage)"
             echo "  --no-audiocpp    Skip audio.cpp (TTS/ASR binaries + model_specs)"
             echo "  --no-llama-swap  Skip the llama-swap binary (image loses its entrypoint!)"
-            echo "  --no-vllm        Skip vLLM + vLLM-Omni + vllm-gguf-plugin (~4.7 GB)"
+            echo "  --no-vllm        Skip vLLM + its venv (~4.7 GB)"
             echo "  --no-sglang      Skip SGLang (~3.8 GB)"
             echo "  --no-strata      Skip Strata engine + venv (~1 GB)"
+            echo "  --vllm-omni      Opt IN to vLLM-Omni (version auto-aligned to the vLLM line)"
+            echo "  --vllm-gguf      Opt IN to vllm-gguf-plugin (GGUF models via vLLM)"
             echo "  --sd             Opt IN to stable-diffusion.cpp (off by default)"
             echo ""
             echo "Environment variables:"
@@ -79,6 +91,8 @@ for arg in "$@"; do
             echo "  LLAMA_REF            Pin llama.cpp to a commit, tag, or branch"
             echo "  AUDIOCPP_REF         Pin audio.cpp to a commit, tag, or branch"
             echo "  LS_VERSION           Override llama-swap version (e.g., '170' or 'latest')"
+            echo "  VLLM_OMNI_REF        Pin vLLM-Omni explicitly (default: auto-aligned to VLLM_VERSION)"
+            echo "  INCLUDE_VLLM_OMNI=1  Same as --vllm-omni (likewise INCLUDE_VLLM_GGUF)"
             echo "  INCLUDE_VLLM=0       Same as --no-vllm (likewise for the other components)"
             exit 0
             ;;
@@ -87,6 +101,16 @@ done
 
 DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-llama-swap:unified-${BACKEND}}"
 CACHE_TAG="${CACHE_TAG:-unified-${BACKEND}-cache}"
+
+# The vLLM add-ons only make sense with the vLLM venv itself. Checked AFTER
+# CLI parsing so `--no-vllm --vllm-omni` is caught too.
+if [[ "$INCLUDE_VLLM" != "1" ]]; then
+    if [[ "$INCLUDE_VLLM_OMNI" == "1" || "$INCLUDE_VLLM_GGUF" == "1" ]]; then
+        echo "NOTE: --no-vllm removes the vLLM venv entirely; forcing vllm-omni/gguf off."
+    fi
+    INCLUDE_VLLM_OMNI=0
+    INCLUDE_VLLM_GGUF=0
+fi
 
 # Git repository URLs
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp.git"
@@ -135,6 +159,64 @@ resolve_ref() {
 # Resolve HEAD of a repo without needing to know the default branch name.
 get_latest_hash() {
     git ls-remote "${1}" HEAD 2>/dev/null | head -1 | cut -f1
+}
+
+# Resolve a vLLM-Omni version that matches the vLLM major.minor line.
+# vllm-omni tracks vLLM's internal APIs, so its version MUST follow the vLLM
+# line (0.31.x omni <-> 0.31.x vllm). Taking PyPI's latest *stable* blindly
+# caused the 0.30.0-vs-0.31.0 mismatch (RoutedExpertsLists ImportError) —
+# the two packages release on independent schedules. Pre-releases count:
+# omni frequently ships the matching version as an rc first (0.31.0rc1 for
+# vLLM 0.31.0). VLLM_OMNI_REF overrides everything.
+# Usage: VLLM_OMNI_REF="" resolve_omni_version "0.31.0"  ->  prints e.g. 0.31.0rc1
+resolve_omni_version() {
+    local vllm_ver="$1"
+    if [[ -n "${VLLM_OMNI_REF:-}" ]]; then
+        echo "${VLLM_OMNI_REF}"
+        return 0
+    fi
+    curl -fsSL --max-time 60 https://pypi.org/pypi/vllm-omni/json | \
+        VLLM_VER="$vllm_ver" python3 -c '
+import json
+import os
+import re
+import sys
+
+vllm_ver = os.environ["VLLM_VER"]
+m = re.match(r"^(\d+\.\d+)\.", vllm_ver)
+if not m:
+    sys.exit("cannot parse vLLM version %r" % vllm_ver)
+prefix = m.group(1)  # e.g. "0.31"
+
+try:
+    data = json.load(sys.stdin)
+except Exception as exc:
+    sys.exit("PyPI response not valid JSON: %s" % exc)
+
+cands = []
+for ver, files in data["releases"].items():
+    if not files:
+        continue
+    vm = re.match(r"^(\d+\.\d+)\.", ver)
+    if vm and vm.group(1) == prefix:
+        cands.append(ver)
+if not cands:
+    sys.exit("no vllm-omni release found for line %s.x (vLLM %s)" % (prefix, vllm_ver))
+
+def vkey(v):
+    # "0.31.0rc1" -> ((0,31,0), 0, "rc1"); "0.31.0" -> ((0,31,0), 1, "").
+    # A final release (flag 1) sorts AFTER any prerelease of the same numbers
+    # (flag 0), so max() prefers the final when it exists.
+    m = re.match(r"^(\d+(?:\.\d+)*)(.*)$", v)
+    nums = tuple(int(p) for p in m.group(1).split("."))
+    rest = m.group(2)
+    if rest == "":
+        return (nums, 1, "")
+    return (nums, 0, rest)
+
+cands.sort(key=vkey)
+print(cands[-1])
+'
 }
 
 echo "=========================================="
@@ -210,12 +292,13 @@ else
     echo "strata: ${STRATA_REF} -> ${STRATA_HASH}"
 fi
 
-# Resolve latest vLLM, vLLM-Omni and SGLang versions from PyPI at build time.
-# Injecting the version strings as build-args forces BuildKit to re-run the
-# uv install layers whenever a version changes, avoiding stale cache hits
-# (same pattern used for LLAMA_COMMIT_HASH / AUDIOCPP_COMMIT_HASH above).
-# Versions are deliberately NOT locked so images pick up new releases.
-# Disabled components skip the lookup entirely.
+# Resolve latest vLLM, aligned vLLM-Omni and SGLang versions from PyPI at
+# build time. Injecting the version strings as build-args forces BuildKit to
+# re-run the uv install layers whenever a version changes, avoiding stale
+# cache hits (same pattern used for LLAMA_COMMIT_HASH / AUDIOCPP_COMMIT_HASH
+# above). vLLM / SGLang are deliberately NOT locked so images pick up new
+# releases; vLLM-Omni IS version-aligned to the vLLM line (see
+# resolve_omni_version). Disabled components skip the lookup entirely.
 VLLM_VERSION=""
 VLLM_OMNI_VERSION=""
 SGLANG_VERSION=""
@@ -232,13 +315,19 @@ else
     fi
     echo "vllm: latest PyPI version: ${VLLM_VERSION}"
 
-    echo "Resolving vLLM-Omni version from PyPI..."
-    if ! VLLM_OMNI_VERSION=$(curl -fsSL https://pypi.org/pypi/vllm-omni/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])" 2>&1); then
-        echo "ERROR: Failed to resolve vLLM-Omni version from PyPI" >&2
-        echo "  curl/python output: ${VLLM_OMNI_VERSION}" >&2
-        exit 1
+    if [[ "$INCLUDE_VLLM_OMNI" == "1" ]]; then
+        echo "Resolving vLLM-Omni version (aligned to vLLM ${VLLM_VERSION})..."
+        if ! VLLM_OMNI_VERSION=$(resolve_omni_version "${VLLM_VERSION}" 2>&1); then
+            echo "ERROR: Failed to resolve a vLLM-Omni version aligned to vLLM ${VLLM_VERSION}" >&2
+            echo "  resolver output: ${VLLM_OMNI_VERSION}" >&2
+            echo "  Pin one explicitly: VLLM_OMNI_REF=0.31.0rc1 ./build-image.sh --cuda --vllm-omni" >&2
+            exit 1
+        fi
+        echo "vllm-omni: aligned version: ${VLLM_OMNI_VERSION}"
+    else
+        VLLM_OMNI_VERSION="disabled"
+        echo "vllm-omni: skipped (INCLUDE_VLLM_OMNI=0)"
     fi
-    echo "vllm-omni: latest PyPI version: ${VLLM_OMNI_VERSION}"
 fi
 
 if [[ "$INCLUDE_SGLANG" != "1" ]]; then
@@ -267,7 +356,9 @@ echo "Components:"
 for pair in "llama.cpp:${INCLUDE_LLAMA}" \
             "audio.cpp:${INCLUDE_AUDIOCPP}" \
             "llama-swap:${INCLUDE_LLAMA_SWAP}" \
-            "vLLM(+Omni+GGUF):${INCLUDE_VLLM}" \
+            "vLLM:${INCLUDE_VLLM}" \
+            "vLLM-Omni:${INCLUDE_VLLM_OMNI}" \
+            "vLLM-GGUF-plugin:${INCLUDE_VLLM_GGUF}" \
             "SGLang:${INCLUDE_SGLANG}" \
             "Strata:${INCLUDE_STRATA}" \
             "stable-diffusion.cpp:${INCLUDE_SD}"; do
@@ -293,6 +384,8 @@ BUILD_ARGS=(
     --build-arg "INCLUDE_AUDIOCPP=${INCLUDE_AUDIOCPP}"
     --build-arg "INCLUDE_LLAMA_SWAP=${INCLUDE_LLAMA_SWAP}"
     --build-arg "INCLUDE_VLLM=${INCLUDE_VLLM}"
+    --build-arg "INCLUDE_VLLM_OMNI=${INCLUDE_VLLM_OMNI}"
+    --build-arg "INCLUDE_VLLM_GGUF=${INCLUDE_VLLM_GGUF}"
     --build-arg "INCLUDE_SGLANG=${INCLUDE_SGLANG}"
     --build-arg "INCLUDE_STRATA=${INCLUDE_STRATA}"
     --build-arg "INCLUDE_SD=${INCLUDE_SD}"
@@ -371,7 +464,8 @@ echo "Running static verification (no GPU required)..."
 # Component toggles are passed into the container so the per-component checks
 # below can be skipped for components that were not built.
 if ! docker run --rm --entrypoint bash \
-    -e INCLUDE_VLLM="$INCLUDE_VLLM" -e INCLUDE_SGLANG="$INCLUDE_SGLANG" -e INCLUDE_STRATA="$INCLUDE_STRATA" \
+    -e INCLUDE_VLLM="$INCLUDE_VLLM" -e INCLUDE_VLLM_OMNI="$INCLUDE_VLLM_OMNI" -e INCLUDE_VLLM_GGUF="$INCLUDE_VLLM_GGUF" \
+    -e INCLUDE_SGLANG="$INCLUDE_SGLANG" -e INCLUDE_STRATA="$INCLUDE_STRATA" \
     "${DOCKER_IMAGE_TAG}" -c '
     set -e
     echo "--- nvcc ---"
@@ -381,8 +475,19 @@ if ! docker run --rm --entrypoint bash \
         /opt/vllm-venv/bin/python -c "import vllm; print(vllm.__version__)"
         echo "--- kv-cache-dtype flag (vllm) ---"
         grep -rhoE -- "--kv-cache-dtype|kv_cache_dtype" /opt/vllm-venv/lib/python3.12/site-packages/vllm/ | sort -u
-        echo "--- pip list (vllm/flashinfer/gguf) ---"
-        /opt/vllm-venv/bin/pip list 2>/dev/null | grep -i -E "vllm|flashinfer|gguf"
+        echo "--- pip list (vllm/flashinfer[/gguf]) ---"
+        if [ "$INCLUDE_VLLM_GGUF" = "1" ]; then
+            /opt/vllm-venv/bin/pip list 2>/dev/null | grep -i -E "vllm|flashinfer|gguf"
+        else
+            /opt/vllm-venv/bin/pip list 2>/dev/null | grep -i -E "vllm|flashinfer"
+            echo "vllm-gguf-plugin: not installed (INCLUDE_VLLM_GGUF=0)"
+        fi
+        echo "--- vllm-omni ---"
+        if [ "$INCLUDE_VLLM_OMNI" = "1" ]; then
+            /opt/vllm-venv/bin/python -c "import vllm_omni; print(vllm_omni.__version__)"
+        else
+            echo "vllm-omni: not installed (INCLUDE_VLLM_OMNI=0)"
+        fi
         echo "--- flashinfer import ---"
         /opt/vllm-venv/bin/python -c "import flashinfer; print(flashinfer.__version__)"
     else
