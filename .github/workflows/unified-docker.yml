@@ -163,19 +163,26 @@ jobs:
           AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'main' }}
           LS_VERSION: ${{ inputs.llama_swap_version || 'main' }}
           STRATA_REF: ${{ inputs.strata_ref || 'latest' }}
-          # Component toggles: only an explicit `false` (manual run with the
-          # box unchecked) disables a component; push/schedule builds keep
-          # everything (inputs.* is null there, so `== false` is false -> 1).
-          INCLUDE_LLAMA: ${{ inputs.include_llama == false && '0' || '1' }}
-          INCLUDE_AUDIOCPP: ${{ inputs.include_audiocpp == false && '0' || '1' }}
-          INCLUDE_LLAMA_SWAP: ${{ inputs.include_llama_swap == false && '0' || '1' }}
-          INCLUDE_VLLM: ${{ inputs.include_vllm == false && '0' || '1' }}
+          # Component toggles.
+          #
+          # CAUTION (2026-10-20 incident): on push/schedule events the `inputs`
+          # context is EMPTY, and GitHub's loose equality makes `'' == false`
+          # evaluate to TRUE (both coerce to number 0). The previous form
+          # `${{ inputs.x == false && '0' || '1' }}` therefore disabled EVERY
+          # component on the 2026-10-19 scheduled build and pushed an empty
+          # shell image to the tracked tag, which killed the Unraid container
+          # on its next auto-update. Rule: on non-dispatch events the default
+          # components are always ON; checkboxes only matter for manual runs.
+          INCLUDE_LLAMA: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_llama == true) && '1' || '0' }}
+          INCLUDE_AUDIOCPP: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_audiocpp == true) && '1' || '0' }}
+          INCLUDE_LLAMA_SWAP: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_llama_swap == true) && '1' || '0' }}
+          INCLUDE_VLLM: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_vllm == true) && '1' || '0' }}
           # vLLM add-ons are opt-in: only an explicit `true` (manual run with
           # the box checked) enables them; push/schedule builds leave them out.
           INCLUDE_VLLM_OMNI: ${{ inputs.include_vllm_omni == true && '1' || '0' }}
           INCLUDE_VLLM_GGUF: ${{ inputs.include_vllm_gguf == true && '1' || '0' }}
-          INCLUDE_SGLANG: ${{ inputs.include_sglang == false && '0' || '1' }}
-          INCLUDE_STRATA: ${{ inputs.include_strata == false && '0' || '1' }}
+          INCLUDE_SGLANG: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_sglang == true) && '1' || '0' }}
+          INCLUDE_STRATA: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_strata == true) && '1' || '0' }}
           # SD is opt-in: only an explicit `true` enables it.
           INCLUDE_SD: ${{ inputs.include_sd == true && '1' || '0' }}
           DOCKER_IMAGE_TAG: ghcr.io/${{ github.repository }}:unified-${{ matrix.backend }}

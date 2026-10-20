@@ -389,9 +389,12 @@ BUILD_ARGS=(
     --build-arg "INCLUDE_SGLANG=${INCLUDE_SGLANG}"
     --build-arg "INCLUDE_STRATA=${INCLUDE_STRATA}"
     --build-arg "INCLUDE_SD=${INCLUDE_SD}"
-    -t "${DOCKER_IMAGE_TAG}"
     -f "${DOCKERFILE}"
 )
+# NOTE: no `-t` here on purpose. Registry (CI) builds push a STAGING tag first
+# and only retag the final name after binary verification, so a broken build
+# can never land on a tag consumers track (2026-10-19 empty-shell incident).
+# The tag for each mode is appended in the branch below.
 
 if [[ "$NO_CACHE" == true ]]; then
     BUILD_ARGS+=(--no-cache)
@@ -407,18 +410,24 @@ fi
 
 # In CI the target tag is a registry ref (e.g. ghcr.io/...). `--load` would
 # materialize the full ~16GB image in the local docker daemon ON TOP of the
-# buildx cache (~20GB), which exceeds the runner's disk. Push directly from
-# the build cache instead, then prune the cache and pull the image back for
-# verification. Local builds (no registry in the tag) keep using `--load`.
+# buildx cache (~20GB), which exceeds the runner's disk. Push a STAGING tag
+# straight from the build cache, then prune, pull it back, VERIFY, and only
+# then retag it locally to the final name — the workflow's push step runs
+# AFTER this script, so the final ghcr tag is only ever updated by a verified
+# image. Local builds (no registry in the tag) keep using `--load`.
 if [[ "${DOCKER_IMAGE_TAG}" == */* ]]; then
-    echo "Registry tag detected: building and pushing directly (avoids --load disk peak)"
-    DOCKER_BUILDKIT=1 docker buildx build --push "${BUILD_ARGS[@]}" "${SCRIPT_DIR}"
-    echo "Freeing build cache before pulling image for verification..."
+    STAGING_TAG="${DOCKER_IMAGE_TAG}-staging"
+    echo "Registry tag detected: pushing STAGING (${STAGING_TAG}) first; final tag only after verification"
+    DOCKER_BUILDKIT=1 docker buildx build --push -t "${STAGING_TAG}" "${BUILD_ARGS[@]}" "${SCRIPT_DIR}"
+    echo "Freeing build cache before pulling staging image for verification..."
     docker buildx prune -af
-    docker pull "${DOCKER_IMAGE_TAG}"
+    docker pull "${STAGING_TAG}"
+    # Promote the verified-candidate to the final tag name locally. The actual
+    # `docker push` of the final tag happens in the workflow's push step.
+    docker tag "${STAGING_TAG}" "${DOCKER_IMAGE_TAG}"
 else
     echo "Local tag detected: building with --load"
-    DOCKER_BUILDKIT=1 docker buildx build --load "${BUILD_ARGS[@]}" "${SCRIPT_DIR}"
+    DOCKER_BUILDKIT=1 docker buildx build --load -t "${DOCKER_IMAGE_TAG}" "${BUILD_ARGS[@]}" "${SCRIPT_DIR}"
 fi
 
 echo ""

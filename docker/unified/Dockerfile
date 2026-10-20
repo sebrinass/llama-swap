@@ -496,3 +496,33 @@ WORKDIR /models
 USER ${RUN_UID}
 ENTRYPOINT ["llama-swap"]
 CMD ["-config", "/etc/llama-swap/config/config.yaml", "-listen", "0.0.0.0:8080"]
+
+# Build-time guard (second line of defense behind build-image.sh's
+# verification). This is the LAST stage, so `-t` tags land here; it is
+# `FROM runtime`, so the tagged image content is identical plus one thin
+# check layer. Because the stage is part of the default build graph, a
+# missing required binary FAILS THE BUILD ITSELF — with buildx --push,
+# nothing is pushed unless this passes. This is the guard that would have
+# prevented the 2026-10-19 empty-shell image from reaching the tracked tag.
+# NOTE: keep the checks in sync with EXPECTED_BINARIES in build-image.sh.
+FROM runtime AS verify
+ARG INCLUDE_LLAMA=1
+ARG INCLUDE_AUDIOCPP=1
+ARG INCLUDE_LLAMA_SWAP=1
+ARG INCLUDE_VLLM=1
+RUN set -e; \
+    if [ "$INCLUDE_LLAMA_SWAP" = "1" ]; then \
+        command -v llama-swap >/dev/null || { echo "verify: llama-swap MISSING" >&2; exit 1; }; \
+    fi; \
+    if [ "$INCLUDE_LLAMA" = "1" ]; then \
+        command -v llama-server >/dev/null || { echo "verify: llama-server MISSING" >&2; exit 1; }; \
+        command -v llama-cli >/dev/null || { echo "verify: llama-cli MISSING" >&2; exit 1; }; \
+    fi; \
+    if [ "$INCLUDE_AUDIOCPP" = "1" ]; then \
+        command -v audiocpp_server >/dev/null || { echo "verify: audiocpp_server MISSING" >&2; exit 1; }; \
+        command -v audiocpp_cli >/dev/null || { echo "verify: audiocpp_cli MISSING" >&2; exit 1; }; \
+    fi; \
+    if [ "$INCLUDE_VLLM" = "1" ]; then \
+        command -v vllm >/dev/null || { echo "verify: vllm MISSING" >&2; exit 1; }; \
+    fi; \
+    echo "verify: all required binaries present"
