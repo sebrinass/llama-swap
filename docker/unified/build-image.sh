@@ -284,8 +284,25 @@ if [[ "$INCLUDE_STRATA" != "1" ]]; then
     STRATA_HASH="disabled"
 else
     if [[ "${STRATA_REF}" == "latest" || "${STRATA_REF}" == "release" ]]; then
-        STRATA_REF=$(curl -fsSL https://api.github.com/repos/Niko1221/Strata/releases/latest \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])') || {
+        # Run #99 (2026-11-04): anonymous api.github.com calls from shared
+        # Actions runner IPs get random 403 rate-limits. Authenticate when a
+        # token is available (workflow passes GITHUB_TOKEN) and retry before
+        # giving up.
+        STRATA_REF=""
+        for _try in 1 2 3; do
+            _strata_url="https://api.github.com/repos/Niko1221/Strata/releases/latest"
+            if [[ -n "${GITHUB_TOKEN}" ]]; then
+                STRATA_REF=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "${_strata_url}" \
+                    | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+            else
+                STRATA_REF=$(curl -fsSL "${_strata_url}" \
+                    | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+            fi
+            [[ -n "${STRATA_REF}" ]] && break
+            echo "WARN: resolve Strata release tag failed (attempt ${_try}/3), retrying" >&2
+            sleep 10
+        done
+        [[ -n "${STRATA_REF}" ]] || {
             echo "ERROR: could not resolve the latest Strata release tag" >&2; exit 1; }
     fi
     STRATA_HASH=$(resolve_ref "${STRATA_REPO}" "${STRATA_REF}") || exit 1
