@@ -163,6 +163,10 @@ jobs:
           AUDIOCPP_REF: ${{ inputs.audiocpp_ref || 'main' }}
           LS_VERSION: ${{ inputs.llama_swap_version || 'main' }}
           STRATA_REF: ${{ inputs.strata_ref || 'latest' }}
+          # Authenticate the api.github.com release lookups in
+          # build-image.sh - anonymous calls from shared runner IPs
+          # get random 403 rate-limits (killed scheduled run #99).
+          GITHUB_TOKEN: ${{ github.token }}
           # Component toggles.
           #
           # CAUTION (2026-10-20 incident): on push/schedule events the `inputs`
