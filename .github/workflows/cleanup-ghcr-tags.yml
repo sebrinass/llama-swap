@@ -50,8 +50,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
           PACKAGE: llama-swap
-          KEEP: ${{ github.event.inputs.keep || '5' }}
-          DRY_RUN: ${{ github.event.inputs.dry_run == false && '0' || '1' }}
+          KEEP: ${{ inputs.keep || '5' }}
+          # A scheduled run deletes; a manual run deletes only when the
+          # dry_run box is unchecked. `inputs.dry_run` is a real boolean
+          # (github.event.inputs.dry_run would be the string "false", which
+          # does not compare equal to the boolean false).
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true && '1' || '0' }}
         run: |
           set -uo pipefail
 
