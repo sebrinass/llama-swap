@@ -56,34 +56,37 @@ jobs:
           set -uo pipefail
 
           API_BASE="/user/packages/container/${PACKAGE}"
-          if ! gh api --paginate "${API_BASE}/versions" > versions.json 2>api.err; then
+          if ! gh api --paginate --jq \
+              '.[]? | select(type == "object") | {id: .id, name: .name, created_at: .created_at, tags: .metadata.container.tags}' \
+              "${API_BASE}/versions" > versions.ndjson 2>api.err; then
               echo "::warning::user-scoped listing failed, trying the owner-scoped endpoint"
               API_BASE="/users/${OWNER}/packages/container/${PACKAGE}"
-              gh api --paginate "${API_BASE}/versions" > versions.json
+              gh api --paginate --jq \
+                  '.[]? | select(type == "object") | {id: .id, name: .name, created_at: .created_at, tags: .metadata.container.tags}' \
+                  "${API_BASE}/versions" > versions.ndjson
           fi
 
-          # The endpoint may answer with one array per page, and a page may
-          # itself be nested; collect every version object wherever it sits.
-          jq -s '[.. | objects | select(.id? and .name? and .metadata? and .metadata.container? and .metadata.container.tags?)]' \
-              versions.json > versions.flat.json
+          # One JSON object per line; slurp into a plain list.
+          jq -s 'map(select(.id and .name and (.tags | type == "array")))' \
+              versions.ndjson > versions.flat.json
           echo "versions listed: $(jq 'length' versions.flat.json)"
           echo "sample entry:"
-          jq -c '.[0] | {id, name, created_at, tags: .metadata.container.tags}' versions.flat.json
+          jq -c '.[0]' versions.flat.json
 
           # Keep the rolling tag's manifest and the newest KEEP dated ones.
           # A tag is "ours" only if it matches the image's own tag names.
           jq -r --argjson keep "${KEEP}" '
             def ours: test("^unified-cuda(-rootless)?(-[0-9]{4}-[0-9]{2}-[0-9]{2})?$");
-            (map(select(.metadata.container.tags | index("unified-cuda"))) | map(.name)) as $rolling
+            (map(select(.tags | index("unified-cuda"))) | map(.name)) as $rolling
             | (sort_by(.created_at) | reverse) as $newest
             | ($newest
-               | map(select([.metadata.container.tags[] | select(ours)] | length > 0))
+               | map(select([.tags[] | select(ours)] | length > 0))
                | .[0:$keep] | map(.name)) as $kept
             | $newest[]
-            | select([.metadata.container.tags[] | select(ours)] | length == (.metadata.container.tags | length))
+            | select([.tags[] | select(ours)] | length == (.tags | length))
             | select((.name as $d | ($rolling | index($d))) == null)
             | select((.name as $d | ($kept | index($d))) == null)
-            | "\(.id)\t\(.name)\t\(.metadata.container.tags | join(","))\t\(.created_at)"
+            | "\(.id)\t\(.name)\t\(.tags | join(","))\t\(.created_at)"
           ' versions.flat.json > to_delete.tsv
 
           echo "candidates for deletion: $(wc -l < to_delete.tsv)"
