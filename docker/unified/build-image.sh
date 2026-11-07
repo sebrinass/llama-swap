@@ -17,10 +17,15 @@ BACKEND="cuda"
 NO_CACHE=false
 
 # Component toggles: 1 = build into the image, 0 = skip.
-# Defaults keep every component in (historical image contents). The matching
-# INCLUDE_* env vars seed the defaults, CLI flags override them.
+# The matching INCLUDE_* env vars seed the defaults, CLI flags override them.
 INCLUDE_LLAMA="${INCLUDE_LLAMA:-1}"
-INCLUDE_AUDIOCPP="${INCLUDE_AUDIOCPP:-1}"
+# audio.cpp is opt-in (default off): no live config entry invokes
+# audiocpp_server / audiocpp_cli (TTS runs in the separate Qwen3-TTS
+# container, ASR in the llama.cpp-served Qwen3-ASR-1.7B).
+INCLUDE_AUDIOCPP="${INCLUDE_AUDIOCPP:-0}"
+# llama.cpp's llama-tts tool is opt-in (default off): ~128 MB, unused by any
+# live model entry.
+INCLUDE_LLAMATTS="${INCLUDE_LLAMATTS:-0}"
 INCLUDE_LLAMA_SWAP="${INCLUDE_LLAMA_SWAP:-1}"
 INCLUDE_VLLM="${INCLUDE_VLLM:-1}"
 # vLLM add-ons are opt-in (default off, like SD): unused by the live config,
@@ -31,6 +36,11 @@ INCLUDE_SGLANG="${INCLUDE_SGLANG:-1}"
 INCLUDE_STRATA="${INCLUDE_STRATA:-1}"
 # SD is opt-in (default off): nothing is built unless explicitly requested.
 INCLUDE_SD="${INCLUDE_SD:-0}"
+# The rootless variant (container runs as an unprivileged user) is a separate
+# image layered on top of the main one. It re-chowns ~20 GB of venv files,
+# which Docker turns into a full extra copy of them in a new layer. Nothing
+# on this box consumes it, so it is opt-in.
+BUILD_ROOTLESS="${BUILD_ROOTLESS:-0}"
 
 for arg in "$@"; do
     case $arg in
@@ -45,6 +55,15 @@ for arg in "$@"; do
             ;;
         --no-audiocpp)
             INCLUDE_AUDIOCPP=0
+            ;;
+        --audiocpp)
+            INCLUDE_AUDIOCPP=1
+            ;;
+        --llamatts)
+            INCLUDE_LLAMATTS=1
+            ;;
+        --rootless)
+            BUILD_ROOTLESS=1
             ;;
         --no-llama-swap)
             INCLUDE_LLAMA_SWAP=0
@@ -68,16 +87,18 @@ for arg in "$@"; do
             INCLUDE_SD=1
             ;;
         --help|-h)
-            echo "Usage: ./build-image.sh [--cuda] [--no-cache] [--no-llama] [--no-audiocpp] [--no-llama-swap] [--no-vllm] [--no-sglang] [--no-strata] [--vllm-omni] [--vllm-gguf] [--sd]"
+            echo "Usage: ./build-image.sh [--cuda] [--no-cache] [--no-llama] [--no-audiocpp] [--audiocpp] [--llamatts] [--no-llama-swap] [--no-vllm] [--no-sglang] [--no-strata] [--vllm-omni] [--vllm-gguf] [--sd] [--rootless]"
             echo ""
             echo "Options:"
             echo "  --cuda      Build the unified CUDA image (default)"
             echo "  --no-cache  Force rebuild without using Docker cache"
             echo "  --help, -h  Show this help message"
             echo ""
-            echo "Component switches (default: every component included, except SD / vLLM add-ons):"
+            echo "Component switches (default: llama.cpp + llama-swap + vLLM + SGLang + Strata; audio.cpp, llama-tts, SD and the vLLM add-ons are opt-in):"
             echo "  --no-llama       Skip llama.cpp (CUDA+Vulkan build, slowest stage)"
             echo "  --no-audiocpp    Skip audio.cpp (TTS/ASR binaries + model_specs)"
+            echo "  --audiocpp       Opt IN to audio.cpp"
+            echo "  --llamatts       Opt IN to llama.cpp's llama-tts tool"
             echo "  --no-llama-swap  Skip the llama-swap binary (image loses its entrypoint!)"
             echo "  --no-vllm        Skip vLLM + its venv (~4.7 GB)"
             echo "  --no-sglang      Skip SGLang (~3.8 GB)"
@@ -85,6 +106,7 @@ for arg in "$@"; do
             echo "  --vllm-omni      Opt IN to vLLM-Omni (version auto-aligned to the vLLM line)"
             echo "  --vllm-gguf      Opt IN to vllm-gguf-plugin (GGUF models via vLLM)"
             echo "  --sd             Opt IN to stable-diffusion.cpp (off by default)"
+            echo "  --rootless       Also build the rootless (non-root user) variant (off by default)"
             echo ""
             echo "Environment variables:"
             echo "  DOCKER_IMAGE_TAG     Set custom image tag (default: llama-swap:unified-cuda)"
@@ -371,6 +393,7 @@ DOCKERFILE="${DOCKERFILE:-${SCRIPT_DIR}/Dockerfile}"
 
 echo "Components:"
 for pair in "llama.cpp:${INCLUDE_LLAMA}" \
+            "llama-tts:${INCLUDE_LLAMATTS}" \
             "audio.cpp:${INCLUDE_AUDIOCPP}" \
             "llama-swap:${INCLUDE_LLAMA_SWAP}" \
             "vLLM:${INCLUDE_VLLM}" \
@@ -399,6 +422,7 @@ BUILD_ARGS=(
     --build-arg "STRATA_COMMIT_HASH=${STRATA_HASH}"
     --build-arg "INCLUDE_LLAMA=${INCLUDE_LLAMA}"
     --build-arg "INCLUDE_AUDIOCPP=${INCLUDE_AUDIOCPP}"
+    --build-arg "INCLUDE_LLAMATTS=${INCLUDE_LLAMATTS}"
     --build-arg "INCLUDE_LLAMA_SWAP=${INCLUDE_LLAMA_SWAP}"
     --build-arg "INCLUDE_VLLM=${INCLUDE_VLLM}"
     --build-arg "INCLUDE_VLLM_OMNI=${INCLUDE_VLLM_OMNI}"
@@ -573,6 +597,7 @@ echo "Static verification passed."
 
 echo ""
 echo "=========================================="
+if [[ "$BUILD_ROOTLESS" == "1" ]]; then
 echo "Building rootless image..."
 echo "=========================================="
 echo ""
@@ -589,6 +614,12 @@ USER 10001
 EOF
 
 echo "Rootless image built: ${ROOTLESS_TAG}"
+else
+echo "Rootless image: skipped (BUILD_ROOTLESS=0)"
+echo "  (it re-chowns ~20 GB of venv files, which Docker copies into a full"
+echo "   extra layer; opt in with --rootless or BUILD_ROOTLESS=1)"
+ROOTLESS_TAG=""
+fi
 
 echo ""
 echo "=========================================="
@@ -597,7 +628,9 @@ echo "=========================================="
 echo ""
 echo "Image tags:"
 echo "  ${DOCKER_IMAGE_TAG}"
-echo "  ${ROOTLESS_TAG}"
+if [[ -n "${ROOTLESS_TAG}" ]]; then
+    echo "  ${ROOTLESS_TAG}"
+fi
 echo ""
 echo "Built with:"
 echo "  llama.cpp:            ${LLAMA_HASH}"

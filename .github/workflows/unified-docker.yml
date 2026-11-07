@@ -33,10 +33,10 @@ on:
         required: false
         default: true
       include_audiocpp:
-        description: "Include audio.cpp (TTS/ASR)"
+        description: "Include audio.cpp (TTS/ASR) - opt-in, off by default"
         type: boolean
         required: false
-        default: true
+        default: false
       include_llama_swap:
         description: "Include the llama-swap binary (image entrypoint)"
         type: boolean
@@ -69,6 +69,16 @@ on:
         default: true
       include_sd:
         description: "Opt in to stable-diffusion.cpp (off by default)"
+        type: boolean
+        required: false
+        default: false
+      include_llamatts:
+        description: "Opt in to llama.cpp's llama-tts tool (off by default)"
+        type: boolean
+        required: false
+        default: false
+      build_rootless:
+        description: "Also build the rootless (non-root user) variant (off by default)"
         type: boolean
         required: false
         default: false
@@ -178,7 +188,6 @@ jobs:
           # on its next auto-update. Rule: on non-dispatch events the default
           # components are always ON; checkboxes only matter for manual runs.
           INCLUDE_LLAMA: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_llama == true) && '1' || '0' }}
-          INCLUDE_AUDIOCPP: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_audiocpp == true) && '1' || '0' }}
           INCLUDE_LLAMA_SWAP: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_llama_swap == true) && '1' || '0' }}
           INCLUDE_VLLM: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_vllm == true) && '1' || '0' }}
           # vLLM add-ons are opt-in: only an explicit `true` (manual run with
@@ -189,6 +198,13 @@ jobs:
           INCLUDE_STRATA: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_strata == true) && '1' || '0' }}
           # SD is opt-in: only an explicit `true` enables it.
           INCLUDE_SD: ${{ inputs.include_sd == true && '1' || '0' }}
+          # audio.cpp, llama-tts and the rootless variant are opt-in the same
+          # way: an explicit `true` on a manual run enables them, push/schedule
+          # builds leave them out. (The opt-in form is safe here: an empty
+          # `inputs` value compares false against `true`, so it yields '0'.)
+          INCLUDE_AUDIOCPP: ${{ inputs.include_audiocpp == true && '1' || '0' }}
+          INCLUDE_LLAMATTS: ${{ inputs.include_llamatts == true && '1' || '0' }}
+          BUILD_ROOTLESS: ${{ inputs.build_rootless == true && '1' || '0' }}
           DOCKER_IMAGE_TAG: ghcr.io/${{ github.repository }}:unified-${{ matrix.backend }}
           BUILDX_BUILDER: ${{ env.ACT == 'true' && 'llama-swap-builder' || '' }}
         run: |
@@ -197,6 +213,8 @@ jobs:
 
       - name: Push to GitHub Container Registry
         if: ${{ !env.ACT && (github.event_name == 'push' || github.event_name == 'schedule' || inputs.push_to_ghcr == true) }}
+        env:
+          BUILD_ROOTLESS: ${{ inputs.build_rootless == true && '1' || '0' }}
         run: |
           BASE_TAG="ghcr.io/${{ github.repository }}:unified-${{ matrix.backend }}"
           DATE_TAG=$(date -u +%Y-%m-%d)
@@ -205,7 +223,11 @@ jobs:
           docker tag "${BASE_TAG}" "${BASE_TAG}-${DATE_TAG}"
           docker push "${BASE_TAG}-${DATE_TAG}"
 
-          ROOTLESS_TAG="${BASE_TAG}-rootless"
-          docker push "${ROOTLESS_TAG}"
-          docker tag "${ROOTLESS_TAG}" "${ROOTLESS_TAG}-${DATE_TAG}"
-          docker push "${ROOTLESS_TAG}-${DATE_TAG}"
+          # The rootless variant is opt-in (BUILD_ROOTLESS=1). It is a separate
+          # image with its own ~20 GB chown layer, and nothing consumes it.
+          if [ "${BUILD_ROOTLESS}" = "1" ]; then
+            ROOTLESS_TAG="${BASE_TAG}-rootless"
+            docker push "${ROOTLESS_TAG}"
+            docker tag "${ROOTLESS_TAG}" "${ROOTLESS_TAG}-${DATE_TAG}"
+            docker push "${ROOTLESS_TAG}-${DATE_TAG}"
+          fi

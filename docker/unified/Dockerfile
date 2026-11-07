@@ -1,9 +1,10 @@
 # Unified multi-stage Dockerfile for AI inference tools
 #
 # Components - each can be left out of the build via an INCLUDE_* build-arg
-# (default 1 = included, i.e. the historical image contents):
+# (default 1 = included; the components marked "opt-in, OFF" default to 0):
 #   llama.cpp (CUDA + Vulkan dual backend)  -> INCLUDE_LLAMA
-#   audio.cpp                               -> INCLUDE_AUDIOCPP
+#   llama.cpp's llama-tts tool (opt-in, OFF)-> INCLUDE_LLAMATTS
+#   audio.cpp (opt-in, OFF)                 -> INCLUDE_AUDIOCPP
 #   llama-swap binary (image entrypoint)    -> INCLUDE_LLAMA_SWAP
 #   vLLM (core)                             -> INCLUDE_VLLM
 #   vLLM-Omni (opt-in, OFF)                 -> INCLUDE_VLLM_OMNI
@@ -43,9 +44,16 @@
 
 # Component toggles (global scope). Every stage that uses a toggle
 # re-declares it below, so a bare `docker buildx build` with no build-args
-# still gets all components.
+# still gets the default set (the opt-in components stay off).
 ARG INCLUDE_LLAMA=1
-ARG INCLUDE_AUDIOCPP=1
+# audio.cpp: opt-in, off by default. No live config entry invokes
+# audiocpp_server / audiocpp_cli (TTS runs in the separate Qwen3-TTS
+# container, ASR in the llama.cpp-served Qwen3-ASR-1.7B). Opt back in with
+# INCLUDE_AUDIOCPP=1; the component and its switch stay in the tree.
+ARG INCLUDE_AUDIOCPP=0
+# llama.cpp's llama-tts tool: opt-in, off by default. No live config entry
+# uses it and it is ~128 MB of statically linked CUDA binary.
+ARG INCLUDE_LLAMATTS=0
 ARG INCLUDE_LLAMA_SWAP=1
 ARG INCLUDE_VLLM=1
 # vLLM add-ons are opt-in (default 0), like SD: unused by the live config and
@@ -90,7 +98,7 @@ WORKDIR /build
 
 FROM builder-base AS audiocpp-build
 ARG AUDIOCPP_COMMIT_HASH=main
-ARG INCLUDE_AUDIOCPP=1
+ARG INCLUDE_AUDIOCPP=0
 COPY install-audiocpp.sh /build/
 # NOTE: cache id is deliberately bumped (audiocpp-sel) after switching audio.cpp
 # back to upstream 0xShug0/audio.cpp@main with AUDIOCPP_DEPLOYMENT_BUILD=ON, so a
@@ -109,11 +117,12 @@ RUN --mount=type=cache,id=ccache,target=/ccache \
 FROM builder-base AS llama-build
 ARG LLAMA_COMMIT_HASH=master
 ARG INCLUDE_LLAMA=1
+ARG INCLUDE_LLAMATTS=0
 COPY install-llama.sh /build/
 RUN --mount=type=cache,id=ccache,target=/ccache \
     --mount=type=cache,id=llama,target=/src/llama.cpp/build \
     if [ "$INCLUDE_LLAMA" = "1" ]; then \
-        bash /build/install-llama.sh "${LLAMA_COMMIT_HASH}"; \
+        INCLUDE_LLAMATTS="${INCLUDE_LLAMATTS}" bash /build/install-llama.sh "${LLAMA_COMMIT_HASH}"; \
     else \
         echo "INCLUDE_LLAMA=0 -> skipping llama.cpp build"; \
         mkdir -p /install/bin; \
@@ -298,7 +307,8 @@ ENV PATH="/usr/local/cuda/bin:/usr/local/bin:${PATH}"
 # /versions.txt below. Also exported as ENV so apply-config-toggles.py can
 # read them (and `docker inspect` shows what the image was built with).
 ARG INCLUDE_LLAMA=1
-ARG INCLUDE_AUDIOCPP=1
+ARG INCLUDE_AUDIOCPP=0
+ARG INCLUDE_LLAMATTS=0
 ARG INCLUDE_LLAMA_SWAP=1
 ARG INCLUDE_VLLM=1
 ARG INCLUDE_VLLM_OMNI=0
@@ -308,6 +318,7 @@ ARG INCLUDE_STRATA=1
 ARG INCLUDE_SD=0
 ENV INCLUDE_LLAMA=${INCLUDE_LLAMA} \
     INCLUDE_AUDIOCPP=${INCLUDE_AUDIOCPP} \
+    INCLUDE_LLAMATTS=${INCLUDE_LLAMATTS} \
     INCLUDE_LLAMA_SWAP=${INCLUDE_LLAMA_SWAP} \
     INCLUDE_VLLM=${INCLUDE_VLLM} \
     INCLUDE_VLLM_OMNI=${INCLUDE_VLLM_OMNI} \
@@ -453,7 +464,8 @@ RUN cp /tmp/config.example.yaml /etc/llama-swap/config/config.yaml && \
 
 # Version tracking (disabled components are reported as "disabled")
 RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
-    echo "audio.cpp: ${AUDIOCPP_COMMIT_HASH}" >> /versions.txt && \
+    if [ "$INCLUDE_LLAMATTS" = "1" ]; then echo "llama-tts: included" >> /versions.txt; else echo "llama-tts: disabled (INCLUDE_LLAMATTS=0)" >> /versions.txt; fi && \
+    if [ "$INCLUDE_AUDIOCPP" = "1" ]; then echo "audio.cpp: ${AUDIOCPP_COMMIT_HASH}" >> /versions.txt; else echo "audio.cpp: disabled (INCLUDE_AUDIOCPP=0)" >> /versions.txt; fi && \
     echo "llama-swap: $(cat /tmp/llama-swap-version)" >> /versions.txt && \
     echo "cuda_version: 13.3.0" >> /versions.txt && \
     if [ "$INCLUDE_VLLM" = "1" ]; then \
@@ -507,7 +519,7 @@ CMD ["-config", "/etc/llama-swap/config/config.yaml", "-listen", "0.0.0.0:8080"]
 # NOTE: keep the checks in sync with EXPECTED_BINARIES in build-image.sh.
 FROM runtime AS verify
 ARG INCLUDE_LLAMA=1
-ARG INCLUDE_AUDIOCPP=1
+ARG INCLUDE_AUDIOCPP=0
 ARG INCLUDE_LLAMA_SWAP=1
 ARG INCLUDE_VLLM=1
 RUN set -e; \

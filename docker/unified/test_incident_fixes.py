@@ -52,6 +52,18 @@ def eval_expr(event, checkbox):
     return "1" if gh_truthy(lhs) else "0"
 
 
+def eval_optin_expr(event, checkbox):
+    """Evaluate the opt-in form: inputs.x == true && '1' || '0'
+
+    Used by the components that default to OFF (audio.cpp, llama-tts, the
+    rootless variant). An empty `inputs` value must yield '0' on push/schedule
+    builds, which the loose-equality rules give us for free: '' and true
+    coerce to 0 and 1, so they are not equal.
+    """
+    inputs_val = "" if event != "workflow_dispatch" else checkbox
+    return "1" if gh_truthy(gh_loose_eq(inputs_val, True)) else "0"
+
+
 print("== [1] workflow expression truth table ==")
 CASES = [
     # (event, checkbox, expected)
@@ -70,6 +82,22 @@ for event, checkbox, expected in CASES:
 # old form for regression proof: '' == false -> '0' (the bug)
 old_bug = gh_loose_eq("", False)
 print(f"  [{'PASS' if old_bug else 'FAIL'}] old form bug reproduced: '' == false is {old_bug} (must be True)")
+
+print()
+print("== [1b] opt-in expression truth table (audio.cpp / llama-tts / rootless) ==")
+OPTIN_CASES = [
+    # (event, checkbox, expected)
+    ("schedule", None, "0"),
+    ("push", None, "0"),
+    ("workflow_dispatch", True, "1"),
+    ("workflow_dispatch", False, "0"),
+]
+for event, checkbox, expected in OPTIN_CASES:
+    got = eval_optin_expr(event, checkbox)
+    ok = got == expected
+    if not ok:
+        fails += 1
+    print(f"  [{'PASS' if ok else 'FAIL'}] {event} checkbox={checkbox} -> {got} (want {expected})")
 
 print()
 print("== [2] Dockerfile verify-stage logic ==")

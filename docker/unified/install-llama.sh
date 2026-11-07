@@ -38,7 +38,12 @@ CMAKE_FLAGS=(
     "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath-link,/usr/local/cuda/lib64/stubs -lcuda"
 )
 
-TARGETS=(llama-cli llama-server llama-tts)
+# Targets to build. llama-tts is opt-in (INCLUDE_LLAMATTS=1): no live model
+# entry uses it and it is ~128 MB of statically linked CUDA binary.
+TARGETS=(llama-cli llama-server)
+if [ "${INCLUDE_LLAMATTS:-0}" = "1" ]; then
+    TARGETS+=(llama-tts)
+fi
 
 rm -rf build/CMakeCache.txt build/CMakeFiles 2>/dev/null || true
 

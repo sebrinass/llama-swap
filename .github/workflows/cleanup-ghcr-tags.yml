@@ -1,0 +1,78 @@
+name: Cleanup GHCR image tags
+
+# The build workflow pushes four tags per run: the rolling tag
+# (unified-cuda), a dated snapshot (unified-cuda-YYYY-MM-DD) and the same two
+# for the rootless variant. The dated tags pin old manifests in the registry
+# forever, so without this job every build adds another copy that is never
+# released. This job deletes the older ones and keeps the most recent few for
+# rollback.
+#
+# Safety rules:
+#   - a version that carries the rolling tag is never deleted
+#   - only versions whose every tag starts with "unified-cuda" are touched
+#   - a failed delete is reported as a warning; it never fails the workflow
+#
+# Deleting a manifest releases its layers once the registry garbage-collects
+# the unreferenced blobs, which happens some time after the deletion.
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: "How many of the most recent image versions to keep"
+        required: false
+        default: "5"
+
+concurrency:
+  group: cleanup-ghcr-tags
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old dated image versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE: llama-swap
+          KEEP: ${{ github.event.inputs.keep || '5' }}
+        run: |
+          set -uo pipefail
+
+          API_BASE="/user/packages/container/${PACKAGE}"
+          if ! gh api --paginate "${API_BASE}/versions" > versions.json 2>api.err; then
+            echo "::warning::user-scoped listing failed, trying the owner-scoped endpoint"
+            API_BASE="/users/${OWNER}/packages/container/${PACKAGE}"
+            gh api --paginate "${API_BASE}/versions" > versions.json
+          fi
+          jq -s 'add' versions.json > versions.flat.json
+          total=$(jq 'length' versions.flat.json)
+          echo "versions listed: ${total}"
+
+          jq -r --argjson keep "${KEEP}" '
+            sort_by(.created_at) | reverse
+            | (.[0:$keep] | map(.id)) as $kept
+            | .[]
+            | select((.id as $id | ($kept | index($id))) == null)
+            | select((.metadata.container.tags | index("unified-cuda")) == null)
+            | select([.metadata.container.tags[] | select(test("^unified-cuda"))] | length == (.metadata.container.tags | length))
+            | "\(.id)\t\(.metadata.container.tags | join(","))\t\(.created_at)"
+          ' versions.flat.json > to_delete.tsv
+
+          echo "candidates for deletion: $(wc -l < to_delete.tsv)"
+          while IFS=$'\t' read -r id tags created; do
+              [ -z "${id}" ] && continue
+              echo "deleting version ${id} [${tags}] (${created})"
+              if ! gh api --method DELETE "${API_BASE}/versions/${id}"; then
+                  echo "::warning::could not delete version ${id} [${tags}]"
+              fi
+          done < to_delete.tsv
+
+          echo "cleanup pass done"
