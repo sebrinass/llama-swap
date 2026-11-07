@@ -56,41 +56,75 @@ jobs:
           set -uo pipefail
 
           API_BASE="/user/packages/container/${PACKAGE}"
-          if ! gh api --paginate --jq \
-              '.[]? | select(type == "object") | {id: .id, name: .name, created_at: .created_at, tags: .metadata.container.tags}' \
-              "${API_BASE}/versions" > versions.ndjson 2>api.err; then
+          if ! gh api --paginate --jq '.[]?' "${API_BASE}/versions" > versions.raw 2>api.err; then
               echo "::warning::user-scoped listing failed, trying the owner-scoped endpoint"
               API_BASE="/users/${OWNER}/packages/container/${PACKAGE}"
-              gh api --paginate --jq \
-                  '.[]? | select(type == "object") | {id: .id, name: .name, created_at: .created_at, tags: .metadata.container.tags}' \
-                  "${API_BASE}/versions" > versions.ndjson
+              gh api --paginate --jq '.[]?' "${API_BASE}/versions" > versions.raw
           fi
 
-          # One JSON object per line; slurp into a plain list.
-          jq -s 'map(select(.id and .name and (.tags | type == "array")))' \
-              versions.ndjson > versions.flat.json
-          echo "versions listed: $(jq 'length' versions.flat.json)"
-          echo "sample entry:"
-          jq -c '.[0]' versions.flat.json
+          python3 - "$KEEP" <<'PY' > candidates.tsv
+          import json, re, sys
 
-          # Keep the rolling tag's manifest and the newest KEEP dated ones.
-          # A tag is "ours" only if it matches the image's own tag names.
-          jq -r --argjson keep "${KEEP}" '
-            def ours: test("^unified-cuda(-rootless)?(-[0-9]{4}-[0-9]{2}-[0-9]{2})?$");
-            (map(select(.tags | index("unified-cuda"))) | map(.name)) as $rolling
-            | (sort_by(.created_at) | reverse) as $newest
-            | ($newest
-               | map(select([.tags[] | select(ours)] | length > 0))
-               | .[0:$keep] | map(.name)) as $kept
-            | $newest[]
-            | select([.tags[] | select(ours)] | length == (.tags | length))
-            | select((.name as $d | ($rolling | index($d))) == null)
-            | select((.name as $d | ($kept | index($d))) == null)
-            | "\(.id)\t\(.name)\t\(.tags | join(","))\t\(.created_at)"
-          ' versions.flat.json > to_delete.tsv
+          keep_n = int(sys.argv[1])
+          ours = re.compile(r"^unified-cuda(-rootless)?(-\d{4}-\d{2}-\d{2})?$")
 
-          echo "candidates for deletion: $(wc -l < to_delete.tsv)"
-          cat to_delete.tsv
+          def walk(node):
+              """Every dict that looks like a version entry, at any depth."""
+              if isinstance(node, dict):
+                  if node.get("id") and node.get("name"):
+                      tags = (node.get("metadata") or {}).get("container", {}).get("tags")
+                      if isinstance(tags, list):
+                          yield {"id": node["id"], "name": node["name"],
+                                 "created_at": node.get("created_at", ""), "tags": tags}
+                          return
+                  for value in node.values():
+                      yield from walk(value)
+              elif isinstance(node, list):
+                  for item in node:
+                      yield from walk(item)
+
+          versions = []
+          with open("versions.raw", encoding="utf-8") as fh:
+              for line in fh:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      doc = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  versions.extend(walk(doc))
+
+          # A manifest may show up once per tag; keep one entry per manifest.
+          by_digest = {}
+          for v in versions:
+              by_digest.setdefault(v["name"], v)
+          versions = sorted(by_digest.values(), key=lambda v: v["created_at"], reverse=True)
+          print(f"# versions listed: {len(versions)}", file=sys.stderr)
+          if versions:
+              print(f"# sample: {versions[0]['name']} {versions[0]['tags']}", file=sys.stderr)
+
+          rolling = {v["name"] for v in versions if "unified-cuda" in v["tags"]}
+          kept = set()
+          for v in versions:
+              if len(kept) >= keep_n:
+                  break
+              if all(ours.match(t) for t in v["tags"]):
+                  kept.add(v["name"])
+
+          for v in versions:
+              tags = v["tags"]
+              if not all(ours.match(t) for t in tags):
+                  continue            # not one of our tag names: leave it alone
+              if v["name"] in rolling:
+                  continue            # carries the rolling tag: never delete
+              if v["name"] in kept:
+                  continue            # inside the rollback window
+              print("\t".join([str(v["id"]), v["name"], ",".join(tags), v["created_at"]]))
+          PY
+
+          echo "candidates for deletion: $(grep -vc '^#' candidates.tsv || true)"
+          grep -v '^#' candidates.tsv | head -20
 
           if [ "${DRY_RUN}" = "1" ]; then
               echo "dry run: nothing was deleted (re-run with dry_run=false to delete)"
@@ -103,6 +137,6 @@ jobs:
               if ! gh api --method DELETE "${API_BASE}/versions/${id}"; then
                   echo "::warning::could not delete version ${id} [${tags}]"
               fi
-          done < to_delete.tsv
+          done < <(grep -v '^#' candidates.tsv)
 
           echo "cleanup pass done"
