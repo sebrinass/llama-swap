@@ -62,9 +62,9 @@ jobs:
               gh api --paginate "${API_BASE}/versions" > versions.json
           fi
 
-          # The endpoint may answer with one array per page; flatten them all
-          # into a single list of objects, whatever the shape.
-          jq -s '[.[] | if type == "array" then .[] else . end | select(type == "object")]' \
+          # The endpoint may answer with one array per page, and a page may
+          # itself be nested; collect every version object wherever it sits.
+          jq -s '[.. | objects | select(.id? and .name? and .metadata? and .metadata.container? and .metadata.container.tags?)]' \
               versions.json > versions.flat.json
           echo "versions listed: $(jq 'length' versions.flat.json)"
           echo "sample entry:"
