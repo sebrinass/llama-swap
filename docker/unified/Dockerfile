@@ -266,6 +266,7 @@ RUN if [ "$INCLUDE_SGLANG" = "1" ]; then \
 FROM builder-base AS strata-build
 ARG STRATA_COMMIT_HASH=v0.1.43.1
 ARG INCLUDE_STRATA=1
+ARG STRATA_BUILD_VISION=1
 COPY install-strata.sh /build/
 # INCLUDE_STRATA=0 skips the apt deps + the whole build and only creates the
 # placeholder paths the runtime COPY needs.
@@ -273,7 +274,7 @@ RUN if [ "$INCLUDE_STRATA" = "1" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
             python3.12-venv unzip \
             && rm -rf /var/lib/apt/lists/* \
-            && bash /build/install-strata.sh "${STRATA_COMMIT_HASH}"; \
+            && STRATA_BUILD_VISION="${STRATA_BUILD_VISION}" bash /build/install-strata.sh "${STRATA_COMMIT_HASH}"; \
     else \
         echo "INCLUDE_STRATA=0 -> skipping Strata build"; \
         mkdir -p /install/strata/.venv/bin; \

@@ -9,7 +9,7 @@
 #
 # Usage: ./install-strata.sh <commit_hash_or_tag>   (default: v0.1.43.1)
 # Env:   CMAKE_CUDA_ARCHITECTURES (from the image, default 86 = sm_86/A2/3060/3090)
-#        STRATA_BUILD_VISION=1 also builds the image encoder (default 0: text only)
+#        STRATA_BUILD_VISION=1 also builds the CPU image encoder (default 0: text only)
 set -e
 
 STRATA_REF="${1:-v0.1.43.1}"
@@ -61,7 +61,7 @@ import setup
 llama = "/src/llama.cpp-strata"
 arch = os.environ["STRATA_ARCH"]
 nvcc = os.environ["NVCC"]
-vision = "gpu" if os.environ.get("STRATA_VISION") == "1" else "none"
+vision = "cpu" if os.environ.get("STRATA_VISION") == "1" else "none"
 
 setup.cmake_build(setup.ROOT, setup.ROOT / "build", "strata",
     ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_BUILD_TESTS=OFF",
@@ -76,8 +76,8 @@ setup.cmake_build(setup.ROOT, setup.ROOT / "build", "strata",
     None, "build-strata.bat")
 if vision != "none":
     setup.cmake_build(setup.ROOT / "tools" / "vision", setup.ROOT / "build-vision", "strata-vision",
-        [f"-DLLAMA_DIR={llama}", "-DSTRATA_VISION_CUDA=ON", "-DSTRATA_PORTABLE=OFF",
-         f"-DCMAKE_CUDA_ARCHITECTURES={arch}", f"-DCMAKE_CUDA_COMPILER={nvcc}"], None, "build-vision.bat")
+        [f"-DLLAMA_DIR={llama}", "-DSTRATA_VISION_CUDA=OFF", "-DSTRATA_PORTABLE=ON"],
+        None, "build-vision.bat")
 
 eng = setup.ROOT / "engine"
 eng.mkdir(exist_ok=True)
