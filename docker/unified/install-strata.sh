@@ -10,6 +10,9 @@
 # Usage: ./install-strata.sh <commit_hash_or_tag>   (default: v0.1.43.1)
 # Env:   CMAKE_CUDA_ARCHITECTURES (from the image, default 86 = sm_86/A2/3060/3090)
 #        STRATA_BUILD_VISION=1 also builds the CPU image encoder (default 0: text only)
+#        STRATA_BUILD_SPLIT=0 skips the all-cards split engine strata-split-2
+#        (default 1: built beside the main engine; only activates on big-VRAM
+#        card pairs, never on 2x A2 - future-proofing, see docs/SPLIT_ENGINE.md)
 set -e
 
 STRATA_REF="${1:-v0.1.43.1}"
@@ -20,11 +23,12 @@ LLAMA_CPP_COMMIT="3cf03257f219afbe7334045ff7c6a06ac68c627d"
 
 STRATA_ARCH="${CMAKE_CUDA_ARCHITECTURES:-86}"
 STRATA_VISION="${STRATA_BUILD_VISION:-0}"
+STRATA_SPLIT="${STRATA_BUILD_SPLIT:-1}"
 # exported: the build heredoc below runs as a child process and reads these
-export STRATA_ARCH STRATA_VISION
+export STRATA_ARCH STRATA_VISION STRATA_SPLIT
 export NVCC="$(command -v nvcc)"
 
-echo "=== Strata ${STRATA_REF} (arch ${STRATA_ARCH}, vision ${STRATA_VISION}) ==="
+echo "=== Strata ${STRATA_REF} (arch ${STRATA_ARCH}, vision ${STRATA_VISION}, split ${STRATA_SPLIT}) ==="
 
 # --- source (init-based fetch so a cached /src/Strata dir doesn't break clone) ---
 mkdir -p /src/Strata
@@ -78,12 +82,30 @@ if vision != "none":
     setup.cmake_build(setup.ROOT / "tools" / "vision", setup.ROOT / "build-vision", "strata-vision",
         [f"-DLLAMA_DIR={llama}", "-DSTRATA_VISION_CUDA=OFF", "-DSTRATA_PORTABLE=ON"],
         None, "build-vision.bat")
+split = os.environ.get("STRATA_SPLIT") == "1"
+if split:
+    # strata-split-2 (all-cards split, src/split): its own build dir with the
+    # packaging/build_split_cuda.sh recipe - one card count (2), one arch,
+    # $ORIGIN RUNPATH like the official release. PORTABLE=ON keeps the AVX2
+    # floor of the main engine. The server only picks it up when every expert
+    # fits in VRAM (not on 2x A2), so it ships as future-proofing.
+    split_arch = arch.split(";")[0].split("-")[0]
+    setup.cmake_build(setup.ROOT, setup.ROOT / "build-split", "strata-split-2",
+        ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_BUILD_TESTS=OFF", "-DSTRATA_BUILD_SPLIT=ON",
+         "-DSTRATA_SPLIT_CARDS=2", f"-DSTRATA_SPLIT_ARCH={split_arch}",
+         f"-DCMAKE_CUDA_ARCHITECTURES={split_arch}", f"-DCMAKE_CUDA_COMPILER={nvcc}",
+         f"-DSTRATA_GGML_DIR={llama}", "-DSTRATA_PORTABLE=ON",
+         "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON", "-DCMAKE_SKIP_BUILD_RPATH=OFF",
+         "-DCMAKE_INSTALL_RPATH=$ORIGIN"],
+        None, "build-split.bat")
 
 eng = setup.ROOT / "engine"
 eng.mkdir(exist_ok=True)
 shutil.copy2(setup.ROOT / "build" / setup.EXE, eng / setup.EXE)
 if vision != "none":
     shutil.copy2(setup.ROOT / "build-vision" / "bin" / setup.VEXE, eng / setup.VEXE)
+if split:
+    shutil.copy2(setup.ROOT / "build-split" / "strata-split-2", eng / "strata-split-2")
 bindir = pathlib.Path(nvcc).parent
 meta = {"source": "local", "version": setup.source_version(),
         "archs": [int(a.split("-")[0]) for a in arch.split(";") if a.split("-")[0].isdigit()], "vision": vision,
@@ -91,11 +113,11 @@ meta = {"source": "local", "version": setup.source_version(),
         "src": setup.source_hash(setup.ENGINE_SOURCES),
         "vision_src": setup.source_hash(setup.VISION_SOURCES) if vision != "none" else None}
 (eng / "BUILD.json").write_text(json.dumps(meta, indent=1))
-print(f"engine staged: {eng / setup.EXE} (vision: {vision})")
+print(f"engine staged: {eng / setup.EXE} (vision: {vision}, split: {split})")
 PYEOF
 
 # --- stage the install tree (build dirs are build-time only) ---
-rm -rf /src/Strata/build /src/Strata/build-vision
+rm -rf /src/Strata/build /src/Strata/build-vision /src/Strata/build-split
 mkdir -p /install/strata
 cp -a /src/Strata/. /install/strata/
 

@@ -267,6 +267,7 @@ FROM builder-base AS strata-build
 ARG STRATA_COMMIT_HASH=v0.1.43.1
 ARG INCLUDE_STRATA=1
 ARG STRATA_BUILD_VISION=1
+ARG STRATA_BUILD_SPLIT=1
 COPY install-strata.sh /build/
 # INCLUDE_STRATA=0 skips the apt deps + the whole build and only creates the
 # placeholder paths the runtime COPY needs.
@@ -274,7 +275,8 @@ RUN if [ "$INCLUDE_STRATA" = "1" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
             python3.12-venv unzip \
             && rm -rf /var/lib/apt/lists/* \
-            && STRATA_BUILD_VISION="${STRATA_BUILD_VISION}" bash /build/install-strata.sh "${STRATA_COMMIT_HASH}"; \
+            && STRATA_BUILD_VISION="${STRATA_BUILD_VISION}" STRATA_BUILD_SPLIT="${STRATA_BUILD_SPLIT}" \
+               bash /build/install-strata.sh "${STRATA_COMMIT_HASH}"; \
     else \
         echo "INCLUDE_STRATA=0 -> skipping Strata build"; \
         mkdir -p /install/strata/.venv/bin; \
@@ -493,6 +495,11 @@ RUN echo "llama.cpp: ${LLAMA_COMMIT_HASH}" > /versions.txt && \
     fi && \
     if [ "$INCLUDE_STRATA" = "1" ]; then \
         echo "strata: ${STRATA_COMMIT_HASH} (engine arch ${CMAKE_CUDA_ARCHITECTURES:-86})" >> /versions.txt; \
+        if [ -x /opt/strata/engine/strata-split-2 ]; then \
+            echo "strata-split: built (2 cards)" >> /versions.txt; \
+        else \
+            echo "strata-split: not built" >> /versions.txt; \
+        fi; \
     else \
         echo "strata: disabled (INCLUDE_STRATA=0)" >> /versions.txt; \
     fi && \

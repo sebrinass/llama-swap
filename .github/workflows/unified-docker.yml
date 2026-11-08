@@ -61,7 +61,7 @@ on:
         description: "Include SGLang"
         type: boolean
         required: false
-        default: true
+        default: false
       include_strata:
         description: "Include Strata (Qwen3.8-Flash-Next engine)"
         type: boolean

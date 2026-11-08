@@ -32,7 +32,9 @@ INCLUDE_VLLM="${INCLUDE_VLLM:-1}"
 # and vllm-omni's stable track lags vLLM's versioning.
 INCLUDE_VLLM_OMNI="${INCLUDE_VLLM_OMNI:-0}"
 INCLUDE_VLLM_GGUF="${INCLUDE_VLLM_GGUF:-0}"
-INCLUDE_SGLANG="${INCLUDE_SGLANG:-1}"
+# SGLang is opt-in (default off): vLLM covers the same models (Ornith verified
+# for text/tools/images), and its ~9.5 GB venv crowded the docker disk.
+INCLUDE_SGLANG="${INCLUDE_SGLANG:-0}"
 INCLUDE_STRATA="${INCLUDE_STRATA:-1}"
 # SD is opt-in (default off): nothing is built unless explicitly requested.
 INCLUDE_SD="${INCLUDE_SD:-0}"
