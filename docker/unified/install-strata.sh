@@ -105,7 +105,7 @@ shutil.copy2(setup.ROOT / "build" / setup.EXE, eng / setup.EXE)
 if vision != "none":
     shutil.copy2(setup.ROOT / "build-vision" / "bin" / setup.VEXE, eng / setup.VEXE)
 if split:
-    shutil.copy2(setup.ROOT / "build-split" / "strata-split-2", eng / "strata-split-2")
+    shutil.copy2(setup.ROOT / "build-split" / "src" / "split" / "strata-split-2", eng / "strata-split-2")
 bindir = pathlib.Path(nvcc).parent
 meta = {"source": "local", "version": setup.source_version(),
         "archs": [int(a.split("-")[0]) for a in arch.split(";") if a.split("-")[0].isdigit()], "vision": vision,
