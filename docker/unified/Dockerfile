@@ -60,7 +60,7 @@ ARG INCLUDE_VLLM=1
 # vllm-omni's stable track lags vLLM's versioning.
 ARG INCLUDE_VLLM_OMNI=0
 ARG INCLUDE_VLLM_GGUF=0
-ARG INCLUDE_SGLANG=1
+ARG INCLUDE_SGLANG=0
 ARG INCLUDE_STRATA=1
 # SD is opt-in: default 0 keeps the historical image contents (no SD).
 ARG INCLUDE_SD=0
@@ -229,7 +229,7 @@ RUN if [ "$INCLUDE_VLLM" = "1" ]; then \
 FROM nvidia/cuda:13.3.0-runtime-ubuntu24.04 AS sglang-build
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG INCLUDE_SGLANG=1
+ARG INCLUDE_SGLANG=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 python3.12-venv python3.12-dev python3-pip \
@@ -316,7 +316,7 @@ ARG INCLUDE_LLAMA_SWAP=1
 ARG INCLUDE_VLLM=1
 ARG INCLUDE_VLLM_OMNI=0
 ARG INCLUDE_VLLM_GGUF=0
-ARG INCLUDE_SGLANG=1
+ARG INCLUDE_SGLANG=0
 ARG INCLUDE_STRATA=1
 ARG INCLUDE_SD=0
 ENV INCLUDE_LLAMA=${INCLUDE_LLAMA} \

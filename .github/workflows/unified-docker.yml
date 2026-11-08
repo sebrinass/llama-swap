@@ -194,8 +194,10 @@ jobs:
           # the box checked) enables them; push/schedule builds leave them out.
           INCLUDE_VLLM_OMNI: ${{ inputs.include_vllm_omni == true && '1' || '0' }}
           INCLUDE_VLLM_GGUF: ${{ inputs.include_vllm_gguf == true && '1' || '0' }}
-          INCLUDE_SGLANG: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_sglang == true) && '1' || '0' }}
           INCLUDE_STRATA: ${{ (github.event_name != 'workflow_dispatch' || inputs.include_strata == true) && '1' || '0' }}
+          # SGLang is opt-in (vLLM covers the same models): only an explicit
+          # `true` on a manual run enables it, push/schedule builds leave it out.
+          INCLUDE_SGLANG: ${{ inputs.include_sglang == true && '1' || '0' }}
           # SD is opt-in: only an explicit `true` enables it.
           INCLUDE_SD: ${{ inputs.include_sd == true && '1' || '0' }}
           # audio.cpp, llama-tts and the rootless variant are opt-in the same

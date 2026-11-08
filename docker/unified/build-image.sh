@@ -82,6 +82,9 @@ for arg in "$@"; do
         --no-sglang)
             INCLUDE_SGLANG=0
             ;;
+        --sglang)
+            INCLUDE_SGLANG=1
+            ;;
         --no-strata)
             INCLUDE_STRATA=0
             ;;
@@ -89,21 +92,22 @@ for arg in "$@"; do
             INCLUDE_SD=1
             ;;
         --help|-h)
-            echo "Usage: ./build-image.sh [--cuda] [--no-cache] [--no-llama] [--no-audiocpp] [--audiocpp] [--llamatts] [--no-llama-swap] [--no-vllm] [--no-sglang] [--no-strata] [--vllm-omni] [--vllm-gguf] [--sd] [--rootless]"
+            echo "Usage: ./build-image.sh [--cuda] [--no-cache] [--no-llama] [--no-audiocpp] [--audiocpp] [--llamatts] [--no-llama-swap] [--no-vllm] [--sglang] [--no-sglang] [--no-strata] [--vllm-omni] [--vllm-gguf] [--sd] [--rootless]"
             echo ""
             echo "Options:"
             echo "  --cuda      Build the unified CUDA image (default)"
             echo "  --no-cache  Force rebuild without using Docker cache"
             echo "  --help, -h  Show this help message"
             echo ""
-            echo "Component switches (default: llama.cpp + llama-swap + vLLM + SGLang + Strata; audio.cpp, llama-tts, SD and the vLLM add-ons are opt-in):"
+            echo "Component switches (default: llama.cpp + llama-swap + vLLM + Strata; SGLang, audio.cpp, llama-tts, SD and the vLLM add-ons are opt-in):"
             echo "  --no-llama       Skip llama.cpp (CUDA+Vulkan build, slowest stage)"
             echo "  --no-audiocpp    Skip audio.cpp (TTS/ASR binaries + model_specs)"
             echo "  --audiocpp       Opt IN to audio.cpp"
             echo "  --llamatts       Opt IN to llama.cpp's llama-tts tool"
             echo "  --no-llama-swap  Skip the llama-swap binary (image loses its entrypoint!)"
             echo "  --no-vllm        Skip vLLM + its venv (~4.7 GB)"
-            echo "  --no-sglang      Skip SGLang (~3.8 GB)"
+            echo "  --sglang         Opt IN to SGLang (~9.5 GB venv; off by default, vLLM covers the same models)"
+            echo "  --no-sglang      Skip SGLang (already the default)"
             echo "  --no-strata      Skip Strata engine + venv (~1 GB)"
             echo "  --vllm-omni      Opt IN to vLLM-Omni (version auto-aligned to the vLLM line)"
             echo "  --vllm-gguf      Opt IN to vllm-gguf-plugin (GGUF models via vLLM)"
