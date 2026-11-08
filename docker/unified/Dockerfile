@@ -428,17 +428,20 @@ COPY --from=sglang-build /opt/sglang-venv /opt/sglang-venv
 
 # SGLang's flashinfer JIT-compiles kernels at runtime (e.g. the sampling
 # kernel) and needs CUDA's full curand headers.  /usr/local/cuda/include/
-# ships only a trimmed set.  nvidia-cu13 (a flashinfer dependency inside the
-# venvs) bundles the complete curand*.h, so copy those over.
-# Try BOTH venvs: a vLLM-only build (INCLUDE_SGLANG=0) used to end up with no
-# curand headers at all, because the source was the sglang venv only.
+# ships only a trimmed set.  The pip nvidia packages bundle the complete
+# curand*.h, in two possible layouts: the monolithic nvidia-cu13 package
+# (nvidia/cu13/include, what SGLang pulls) or the split nvidia-curand
+# package (nvidia/curand/include, what vLLM 0.33 pulls).  Try both venvs
+# and both layouts so a vLLM-only build still gets the headers.
 # Guarded: if the path is absent (package-layout change) skip rather than fail.
 RUN mkdir -p /usr/local/cuda/include && \
     for venv in /opt/vllm-venv /opt/sglang-venv; do \
-        if [ -d "$venv/lib/python3.12/site-packages/nvidia/cu13/include" ]; then \
-            cp "$venv/lib/python3.12/site-packages/nvidia/cu13/include/curand"*.h \
-               /usr/local/cuda/include/ 2>/dev/null || true; \
-        fi; \
+        for sub in nvidia/cu13/include nvidia/curand/include; do \
+            if [ -d "$venv/lib/python3.12/site-packages/$sub" ]; then \
+                cp "$venv/lib/python3.12/site-packages/$sub/curand"*.h \
+                   /usr/local/cuda/include/ 2>/dev/null || true; \
+            fi; \
+        done; \
     done && \
     echo "curand headers: $(ls /usr/local/cuda/include/curand*.h 2>/dev/null | wc -l)"
 
